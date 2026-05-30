@@ -7,7 +7,7 @@ import os
 import threading
 from datetime import datetime, timezone
 from pathlib import Path
-from client.common import agent_worker, model
+from client.common import AGENT_RETRIES, agent_worker, model
 from client.kernel_utils import KERNEL_INSTRUCTIONS
 from client.process import mark_worker_done
 from fastapi import FastAPI
@@ -56,7 +56,7 @@ def main_app():
                 or "http://localhost:%s/mcp" % os.environ.get("PROCESS_SERVER_PORT", "7001")
             )],
             instructions=KERNEL_INSTRUCTIONS,
-            retries=10,
+            retries=AGENT_RETRIES,
         )
         while True:
             try:

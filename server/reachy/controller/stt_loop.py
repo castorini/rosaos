@@ -28,12 +28,11 @@ GROQ_WHISPER_MODEL = "whisper-large-v3-turbo"
 # Where to POST transcribed text (client endpoint)
 STT_URL = os.environ.get("STT_CALLBACK_URL") or "http://localhost:%s/stt" % os.environ.get("RAG_AGENT_PORT", "8765")
 
-# VAD settings: how long silence before we consider speech finished
-SILENCE_THRESHOLD_SEC = 1.5  # seconds of silence before transcribing
-# Small chunk duration for VAD (we check VAD on these)
-VAD_CHUNK_DURATION = 0.3  # seconds per VAD check
-# Minimum speech duration to transcribe (avoid transcribing noise)
-MIN_SPEECH_DURATION_SEC = 0.5
+# VAD settings. Lower defaults keep the robot from feeling like it is waiting
+# after the user finishes speaking; env vars make local tuning easy.
+SILENCE_THRESHOLD_SEC = float(os.environ.get("STT_SILENCE_THRESHOLD_SEC", "0.9"))
+VAD_CHUNK_DURATION = float(os.environ.get("STT_VAD_CHUNK_DURATION", "0.2"))
+MIN_SPEECH_DURATION_SEC = float(os.environ.get("STT_MIN_SPEECH_DURATION_SEC", "0.4"))
 
 # Sleep between get_audio_sample() polls (default backend)
 POLL_INTERVAL = 0.02
@@ -45,7 +44,8 @@ PRE_SPEECH_BUFFER_SEC = 0.25
 UTTERANCE_QUEUE_SIZE = 8
 
 # Wake word to trigger recording when eye contact is absent
-WAKE_WORD = "hello"
+WAKE_WORD = os.environ.get("STT_WAKE_WORD", "hello").strip().lower() or "hello"
+EYE_CONTACT_POLL_INTERVAL = float(os.environ.get("EYE_CONTACT_POLL_INTERVAL", "0.16"))
 
 
 def _float32_to_wav_bytes(audio: np.ndarray, sample_rate: int) -> bytes:
@@ -262,7 +262,7 @@ def _wait_for_trigger(
     """Block until eye contact is detected OR the configured wake word is heard.
 
     Runs the eye-contact watcher in a background thread while this thread
-    records audio and checks transcriptions for the wake word.  Returns True
+    records audio and checks transcriptions for the wake word. Returns True
     if either condition fired, False if stop_event was set before either.
     """
     triggered = threading.Event()
@@ -278,7 +278,7 @@ def _wait_for_trigger(
         combined_stop.set()
 
     def _eye_contact_watcher():
-        if wait_for_eye_contact(mini, combined_stop, poll_interval=0.08):
+        if wait_for_eye_contact(mini, combined_stop, poll_interval=EYE_CONTACT_POLL_INTERVAL):
             print("trigger: eye contact")
             if not combined_stop.is_set():
                 triggered.set()
@@ -300,7 +300,8 @@ def _wait_for_trigger(
         text = _transcribe(audio, sr)
         print(f"wake-word check: {text!r}")
         if text and WAKE_WORD in text.lower():
-            utterance_queue.queue.clear()  # clear any pending utterances, we only care about the trigger
+            with utterance_queue.mutex:
+                utterance_queue.queue.clear()
             print("trigger: wake word")
             if not combined_stop.is_set():
                 triggered.set()
@@ -367,7 +368,6 @@ def run_stt_loop(mini: ReachyMini, stt_url: str | None = None, stop_event: threa
             continue
         listening.set()  # start the listening pose thread while we wait for the user to speak after the trigger
         print("capture triggered, waiting for speech...")
-        audio = None
         try:
             audio, sr, _ = utterance_queue.get(timeout=20)
         except queue.Empty:
@@ -377,6 +377,7 @@ def run_stt_loop(mini: ReachyMini, stt_url: str | None = None, stop_event: threa
         print("transcribing")
         text = _transcribe(audio, sr)
         if not text:
+            listening.clear()
             continue
         print("posting to client:", text)
         listening.clear()  # stop the listening pose thread once we have a transcription to send

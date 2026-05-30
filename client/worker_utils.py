@@ -37,5 +37,5 @@ def make_agent(extra_instructions: str = "", mcp_servers: list[str] = ["reachy-m
             if server_name in common.all_mcp_servers
         ],
         instructions=instructions,
-        retries=10
+        retries=common.AGENT_RETRIES,
     )

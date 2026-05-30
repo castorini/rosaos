@@ -15,6 +15,7 @@ all_mcp_servers = {}
 _init_done = False
 # Model initialization
 model = None
+AGENT_RETRIES = int(os.environ.get("AGENT_RETRIES", "3"))
 
 # Default Groq tool-use models (see https://console.groq.com/docs/models)
 GROQ_TOOL_USE_MODELS = (

@@ -124,6 +124,12 @@ All ports and the LLM source can be overridden by environment variables so scrip
 | `PROCESS_SERVER_URL` | — | Full process server URL (e.g. `http://localhost:7001/mcp`). |
 | `REACHY_MCP_PORT` | `5001` | Reachy Mini MCP server port (when starting `python -m server`). |
 | `STT_CALLBACK_URL` | from `RAG_AGENT_PORT` | Where the server POSTs transcribed speech (default `http://localhost:{RAG_AGENT_PORT}/stt`). |
+| `STT_WAKE_WORD` | `hello` | Wake word used when eye contact is absent. After the wake word, Reachy turns toward the detected audio direction and then listens for the command. |
+| `STT_SILENCE_THRESHOLD_SEC` | `0.9` | Silence duration before an utterance is considered complete. Increase if speech gets cut off; decrease for snappier turn-taking. |
+| `STT_VAD_CHUNK_DURATION` | `0.2` | Audio chunk size used by voice activity detection. Smaller values respond sooner with slightly more CPU overhead. |
+| `STT_MIN_SPEECH_DURATION_SEC` | `0.4` | Minimum accepted speech duration, used to ignore noise. |
+| `EYE_CONTACT_POLL_INTERVAL` | `0.16` | Seconds between eye-contact camera checks while waiting for activation. |
+| `AGENT_RETRIES` | `3` | Pydantic-AI retry count for kernel and worker agents. Higher values can hide transient failures but feel slower when a provider is unhealthy. |
 | `TTS_ENGINE` | `groq` | TTS backend: `groq` or `elevenlabs`. |
 | `TTS_VOICE` | `autumn` | Preferred TTS voice name / ID (used for Groq Orpheus and ElevenLabs). |
 | `ELEVENLABS_API_KEY` | — | ElevenLabs API key when using `TTS_ENGINE=elevenlabs` or `--tts-elevenlabs`. |

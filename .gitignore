@@ -1,7 +1,13 @@
 __pycache__/
+*.py[cod]
 *.jpg
 *.wav
 images/
 logs/
 .env
 reachy_mini_env/
+scripts/reachy_mini_env/
+scripts/logs/
+server/images/
+outputs/
+node_modules/

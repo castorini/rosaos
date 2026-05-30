@@ -33,18 +33,18 @@ Required for image analysis and better TTS experience.
 
 Developed with Python 3.12.
 
-Cloning this repo requires the use of the recursive flag to download all submodules (ros-mcp-server). Further instructions to setup ros-mcp-server are in the rosaOS setup file found in the submodule directory
+Cloning this repo requires the use of the recursive flag to download all submodules (ros-mcp-server). Further instructions to setup ros-mcp-server are in the rosaOS setup file found in the submodule directory.
 
 ```
 git clone https://github.com/lilyjge/reachy-mcp.git --recursive
 cd reachy-mcp
-python -m venv reachy_mini_env
-.\reachy_mini_env\Scripts\activate.ps1  # Windows
-# source reachy_mini_env/bin/activate  # macOS/Linux
+uv venv --python 3.12 scripts/reachy_mini_env
 
 # Install dependencies
-pip install -r requirements.txt
+uv pip install -p scripts/reachy_mini_env/bin/python -r requirements.txt
 ```
+
+For fresh macOS + Reachy Mini Lite setup details, including camera permissions and voice/STT keys, see [docs/macos-reachy-mini-setup.md](docs/macos-reachy-mini-setup.md).
 
 ## Usage
 
@@ -52,18 +52,19 @@ pip install -r requirements.txt
 Start all services at once:
 
 ```bash
-./start_all.sh
+./scripts/start_all.sh
 ```
 
 This will start:
 - Reachy Mini daemon (port 8000)
 - MCP server (port 5001)
+- Process manager MCP server (port 7001)
 - RAG agent (port 8765)
 
-Logs are saved to `logs/` directory. To stop all services:
+Logs are saved to the `scripts/logs/` directory. To stop all services:
 
 ```bash
-./stop_all.sh
+./scripts/stop_all.sh
 ```
 
 ### Manual Start (Individual Services)
@@ -71,14 +72,14 @@ Alternatively, start each service manually:
 
 Start Reachy Mini's robot daemon server on the default port 8000:
 
-`uv run reachy-mini-daemon`
+`scripts/reachy_mini_env/bin/reachy-mini-daemon`
 
 Start the Reachy Mini's MCP server on port 5001. 
 For TTS, we support ElevenLabs API, Groq API, or the local pyttsx3 package. 
 
 ```bash
-python -m server
-python -m server --tts-elevenlabs --tts-voice M4zkunnpRihDKTNF0D7f # Use ElevenLabs
+scripts/reachy_mini_env/bin/python -m server
+scripts/reachy_mini_env/bin/python -m server --tts-elevenlabs --tts-voice M4zkunnpRihDKTNF0D7f # Use ElevenLabs
 ```
 
 Start the operating system's client (default port 8765). 
@@ -86,10 +87,10 @@ To use your own OpenAI compatible endpoint for the agents, start the client with
 To use the Anthropic API, start the client with `--anthropic` and optionally specify a model with `--model`. 
 
 ```bash
-python -m client                    # Groq (requires GROQ_API_KEY)
-python -m client --local             # Local LLM at port 6000
-python -m client --model moonshotai/kimi-k2-instruct-0905 # Specify Groq model
-python -m client --anthropic --model claude-sonnet-4-6 # Anthropic API
+scripts/reachy_mini_env/bin/python -m client                    # Groq (requires GROQ_API_KEY)
+scripts/reachy_mini_env/bin/python -m client --local             # Local LLM at port 6000
+scripts/reachy_mini_env/bin/python -m client --model moonshotai/kimi-k2-instruct-0905 # Specify Groq model
+scripts/reachy_mini_env/bin/python -m client --anthropic --model claude-sonnet-4-6 # Anthropic API
 ```
 
 Now you can talk to the Reachy Mini directly.
@@ -97,7 +98,7 @@ Now you can talk to the Reachy Mini directly.
 To chat via CLI instead of the robot:
 
 ```bash
-python -m client.chat.client_cli
+scripts/reachy_mini_env/bin/python -m client.chat.client_cli
 # Optional: --base-url http://localhost:8765  (or set RAG_AGENT_PORT)
 ```
 

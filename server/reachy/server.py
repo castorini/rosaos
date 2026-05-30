@@ -55,12 +55,12 @@ def main(sim: bool = False, tts_elevenlabs: bool = False, tts_voice: str | None 
 
     if sim:
         # Sim mode: no STT loop or camera lifespan
-        with ReachyMini() as m:
+        with ReachyMini(use_sim=True) as m:
             mcp = FastMCP("Reachy Mini Robot")
             register_robot_tools(mcp, lambda: m)
             mcp.run(transport="streamable-http", port=port, stateless_http=True)
     else:
-        # Real hardware mode: use lifespan with STT loop and camera
+        # Real hardware mode: use lifespan with STT loop and camera.
         mcp = FastMCP("Reachy Mini Robot", lifespan=lifespan)
         register_robot_tools(mcp, lambda: mini)
         mcp.run(transport="streamable-http", port=port, stateless_http=True)

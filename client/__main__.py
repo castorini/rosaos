@@ -31,6 +31,12 @@ def _make_connection_reset_safe_policy():
 
 def _parse_args():
     from client.common import GROQ_TOOL_USE_MODELS
+    provider = os.environ.get("LLM_PROVIDER", "groq").strip().lower()
+    default_model = (
+        os.environ.get("ANTHROPIC_MODEL", "claude-sonnet-4-6")
+        if provider == "anthropic"
+        else os.environ.get("GROQ_MODEL", "openai/gpt-oss-120b")
+    )
     parser = __import__("argparse").ArgumentParser(
         description="rosaOS client: kernel + process manager. Use a local OpenAI-compatible LLM, Groq, or Anthropic.",
     )
@@ -49,11 +55,12 @@ def _parse_args():
     parser.add_argument(
         "--anthropic",
         action="store_true",
+        default=provider == "anthropic",
         help="Use Anthropic API instead of Groq when not --local.",
     )
     parser.add_argument(
         "--model",
-        default=os.environ.get("GROQ_MODEL", "openai/gpt-oss-120b"),
+        default=default_model,
         metavar="MODEL",
         help="Groq model when not --local. Tool-use models: %s (default: openai/gpt-oss-120b)."
         % ", ".join(GROQ_TOOL_USE_MODELS),

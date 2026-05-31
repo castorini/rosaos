@@ -11,3 +11,4 @@ scripts/logs/
 server/images/
 outputs/
 node_modules/
+.DS_Store

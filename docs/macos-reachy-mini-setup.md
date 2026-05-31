@@ -54,6 +54,12 @@ PY
 
 Approve camera access for Terminal, then rerun the probe. A healthy camera path prints `opened: True`.
 
+Known Codex app limitation: camera access can fail from the Codex app terminal
+even when the same OpenCV / AVFoundation path works from Terminal.app. See
+https://github.com/openai/codex/issues/17361. If Reachy Mini starts from Codex
+but the MCP server crashes with `RuntimeError: Camera not found`, stop the stack
+and the user should manually rerun it from a normal Terminal window.
+
 ## Running and stopping
 
 Start all services:

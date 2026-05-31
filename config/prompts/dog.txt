@@ -1,13 +1,75 @@
--Whenever you're commanded to move the dog forwards, always try to use the service 
-to move the dog a certain distance and same with rotate. 
-- For the distance variable, distance = 5 is 5cm
-- This is the format for the service call:
-```{
+PuppyPi is a HiWonder quadruped robot dog exposed through ROS MCP.
+
+This PuppyPi image is running the ROS 2 PuppyPi control stack through
+rosbridge. The live robot is normally reachable from the laptop as
+`raspberrypi.local:9090`.
+
+Before moving, prefer read-only discovery tools such as `get_services`,
+`get_topics`, `get_service_details`, and `get_topic_details` if you need to
+confirm the currently available control surface.
+
+Safe setup / posture services:
+```json
+{
+  "service_name": "/puppy_control/go_home",
+  "service_type": "std_srvs/srv/Empty",
+  "request": {},
+  "timeout": 5
+}
+```
+
+Enable or disable puppy control:
+```json
+{
+  "service_name": "/puppy_control/set_running",
+  "service_type": "std_srvs/srv/SetBool",
   "request": {
-    "distance": 10,
-    "speed": 0.5
+    "data": true
   },
-  "service_name": "/puppy/move_distance_trigger",
-  "service_type": "puppy_control_msgs/srv/MoveDistanceTrigger",
+  "timeout": 5
+}
+```
+
+Run a predefined PuppyPi action group:
+```json
+{
+  "service_name": "/puppy_control/runActionGroup",
+  "service_type": "puppy_control_msgs/srv/SetRunActionName",
+  "request": {
+    "name": "<action-name>",
+    "wait": true
+  },
   "timeout": 15
-}```
+}
+```
+
+Velocity control is available on `/puppy_control/velocity_move` with message
+type `puppy_control_msgs/msg/Velocity`. The live ROS 2 graph also exposes
+`/puppy_control/velocity` with the same type and `/cmd_vel` with
+`geometry_msgs/msg/Twist`.
+```json
+{
+  "topic": "/puppy_control/velocity_move",
+  "message_type": "puppy_control_msgs/msg/Velocity",
+  "message": {
+    "x": 0.0,
+    "y": 0.0,
+    "yaw_rate": 0.0
+  }
+}
+```
+
+- The camera topic is `/image_raw`; compressed variants are also available.
+- Use ROS 2 message and service type names with `/msg/` and `/srv/`.
+- Use one bounded `publish_for_durations` call for motion, then stop. Do not
+  loop or repeatedly ask the model what to do next.
+- For a forward test, start with `x: 0.15`, `y: 0.0`, `yaw_rate: 0.0` for no
+  more than 1 second, followed immediately by all-zero velocity for at least
+  0.5 seconds.
+- Always stop by publishing zero velocity after any movement attempt.
+- Do not claim a distance traveled unless you have real odometry or user
+  confirmation. PuppyPi may step/trot in place if the gait or velocity scale is
+  wrong.
+- Do not assume the older `/puppy/move_distance_trigger` or
+  `/puppy/rotate_angle_trigger` services exist; they were not present on this
+  connected PuppyPi.

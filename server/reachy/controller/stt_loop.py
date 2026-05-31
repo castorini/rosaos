@@ -46,6 +46,7 @@ UTTERANCE_QUEUE_SIZE = 8
 # Wake word to trigger recording when eye contact is absent
 WAKE_WORD = os.environ.get("STT_WAKE_WORD", "hello").strip().lower() or "hello"
 EYE_CONTACT_POLL_INTERVAL = float(os.environ.get("EYE_CONTACT_POLL_INTERVAL", "0.16"))
+POST_TRIGGER_SPEECH_TIMEOUT_SEC = float(os.environ.get("POST_TRIGGER_SPEECH_TIMEOUT_SEC", "8.0"))
 
 
 def _float32_to_wav_bytes(audio: np.ndarray, sample_rate: int) -> bytes:
@@ -369,7 +370,7 @@ def run_stt_loop(mini: ReachyMini, stt_url: str | None = None, stop_event: threa
         listening.set()  # start the listening pose thread while we wait for the user to speak after the trigger
         print("capture triggered, waiting for speech...")
         try:
-            audio, sr, _ = utterance_queue.get(timeout=20)
+            audio, sr, _ = utterance_queue.get(timeout=POST_TRIGGER_SPEECH_TIMEOUT_SEC)
         except queue.Empty:
             print("No speech detected after trigger.")
             listening.clear()  # stop the listening pose thread once we have a transcription to send

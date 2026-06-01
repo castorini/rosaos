@@ -5,7 +5,7 @@ ROS Agentic Operating System: Control robots with LLMs through MCP with Reachy M
 ## Requirements
 Using Reachy Mini Lite for easy media stream.
 
-The client supports a **local OpenAI-compatible LLM** (e.g. vLLM), the **Groq API**, or the **Anthropic API**. Choose one via CLI or environment variables.
+The client supports a **local OpenAI-compatible LLM** (e.g. vLLM), the **OpenAI API**, the **Groq API**, or the **Anthropic API**. Choose one via CLI or environment variables.
 
 ### Local LLM (OpenAI-compatible endpoint)
 For local inference, run an OpenAI-compatible server (e.g. [vLLM](https://docs.vllm.ai/en/latest/getting_started/quickstart/)) and point the client at it:
@@ -28,6 +28,14 @@ Get a key at [console.groq.com/keys](https://console.groq.com/keys).
 Supported Groq tool-use models include: `llama-3.1-8b-instant`, `llama-3.3-70b-versatile`, `openai/gpt-oss-120b`, `openai/gpt-oss-20b`, `moonshotai/kimi-k2-instruct-0905`, `qwen/qwen3-32b`, and `meta-llama/llama-4-scout-17b-16e-instruct`. Default is `openai/gpt-oss-120b`.
 
 Required for image analysis and better TTS experience. 
+
+### OpenAI API
+[OpenAI](https://platform.openai.com/api-keys) is the default hosted agent model provider:
+
+- **macOS/Linux:** `export OPENAI_API_KEY=your_key`
+- **Windows (PowerShell):** `$env:OPENAI_API_KEY="your_key"`
+
+OpenAI API usage is billed through the API platform, separately from ChatGPT Free/Plus/Pro subscriptions. A ChatGPT subscription does not provide API quota for rosaOS.
 
 ## Installation
 
@@ -84,13 +92,14 @@ scripts/reachy_mini_env/bin/python -m server --tts-elevenlabs --tts-voice M4zkun
 
 Start the operating system's client (default port 8765). 
 To use your own OpenAI compatible endpoint for the agents, start the client with `--local` and optionally `--endpoint` (port, default 6000). 
-To use the Anthropic API, start the client with `--anthropic` and optionally specify a model with `--model`. 
+To use OpenAI, Groq, or Anthropic, start the client with `--provider` or a shortcut flag and optionally specify a model with `--model`. 
 
 ```bash
-scripts/reachy_mini_env/bin/python -m client                    # Groq (requires GROQ_API_KEY)
+scripts/reachy_mini_env/bin/python -m client                    # OpenAI (requires OPENAI_API_KEY)
 scripts/reachy_mini_env/bin/python -m client --local             # Local LLM at port 6000
-scripts/reachy_mini_env/bin/python -m client --model moonshotai/kimi-k2-instruct-0905 # Specify Groq model
+scripts/reachy_mini_env/bin/python -m client --provider groq --model moonshotai/kimi-k2-instruct-0905 # Groq
 scripts/reachy_mini_env/bin/python -m client --anthropic --model claude-sonnet-4-6 # Anthropic API
+scripts/reachy_mini_env/bin/python -m client --openai --model gpt-5.2 # OpenAI API
 ```
 
 Now you can talk to the Reachy Mini directly.
@@ -110,12 +119,14 @@ All ports and the LLM source can be overridden by environment variables so scrip
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `GROQ_API_KEY` | — | **Required** when not using `--local`. Groq API key from [console.groq.com/keys](https://console.groq.com/keys). |
+| `OPENAI_API_KEY` | — | **Required** by default, or when using OpenAI (`--openai`, `--provider openai`, or `LLM_PROVIDER=openai`). OpenAI API key from `https://platform.openai.com/api-keys`; ChatGPT subscriptions do not count as API billing. |
+| `OPENAI_MODEL` | `gpt-5.2` | OpenAI model name when `LLM_PROVIDER=openai` (overridden by `--model` when using `--openai` or `--provider openai`). |
+| `GROQ_API_KEY` | — | **Required** when using Groq. Groq API key from [console.groq.com/keys](https://console.groq.com/keys). |
 | `LOCAL_LLM` | — | Set to `1` or `true` to use local OpenAI-compatible endpoint. |
 | `LOCAL_LLM_PORT` | `6000` | Port of local LLM when `LOCAL_LLM` is set. |
 | `LOCAL_LLM_ENDPOINT` | — | Full base URL (e.g. `https://localhost:6000/v1`) overrides port. |
 | `GROQ_MODEL` | `openai/gpt-oss-120b` | Groq model when not using local LLM. |
-| `LLM_PROVIDER` | `groq` | Remote LLM provider when not using local LLM. One of `groq` or `anthropic`. Usually set via CLI (`python -m client` flags). |
+| `LLM_PROVIDER` | `openai` | Remote LLM provider when not using local LLM. One of `openai`, `groq`, or `anthropic`. Usually set via CLI (`python -m client` flags). |
 | `ANTHROPIC_API_KEY` | — | **Required** when using Anthropic (`--anthropic` or `LLM_PROVIDER=anthropic`). Anthropic API key from `https://console.anthropic.com`. |
 | `ANTHROPIC_MODEL` | `claude-sonnet-4-6` | Anthropic model name when `LLM_PROVIDER=anthropic` (overridden by `--model` when using `--anthropic`). |
 | `RAG_AGENT_PORT` | `8765` | Client app (kernel + chat) port. |

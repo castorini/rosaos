@@ -28,6 +28,12 @@ GROQ_TOOL_USE_MODELS = (
     "meta-llama/llama-4-scout-17b-16e-instruct",
 )
 
+DEFAULT_MODELS = {
+    "anthropic": "claude-sonnet-4-6",
+    "groq": "openai/gpt-oss-120b",
+    "openai": "gpt-5.2",
+}
+
 
 def init_model() -> None:
     global model
@@ -52,9 +58,9 @@ def init_model() -> None:
             logger.warning("Local LLM endpoint not reachable at %s: %s", base_url, e)
             raise
     else:
-        provider = os.environ.get("LLM_PROVIDER", "groq").strip().lower()
+        provider = os.environ.get("LLM_PROVIDER", "openai").strip().lower()
         if provider == "anthropic":
-            anthropic_model = os.environ.get("ANTHROPIC_MODEL", "claude-sonnet-4-6")
+            anthropic_model = os.environ.get("ANTHROPIC_MODEL", DEFAULT_MODELS["anthropic"])
             api_key = os.environ.get("ANTHROPIC_API_KEY", "").strip()
             if not api_key:
                 raise SystemExit(
@@ -70,8 +76,27 @@ def init_model() -> None:
                 provider=AnthropicProvider(api_key=api_key),
             )
             print("Using Anthropic model:", anthropic_model)
+        elif provider == "openai":
+            openai_model = os.environ.get("OPENAI_MODEL", DEFAULT_MODELS["openai"])
+            api_key = os.environ.get("OPENAI_API_KEY", "").strip()
+            if not api_key:
+                raise SystemExit(
+                    "OPENAI_API_KEY is not set. OpenAI API billing is separate from ChatGPT subscriptions. "
+                    "Create an API key at https://platform.openai.com/api-keys and set:\n"
+                    "  export OPENAI_API_KEY=your_key   # macOS/Linux\n"
+                    "  set OPENAI_API_KEY=your_key      # Windows"
+                )
+            model = OpenAIResponsesModel(
+                openai_model,
+                provider=OpenAIProvider(api_key=api_key),
+            )
+            print("Using OpenAI model:", openai_model)
         else:
-            groq_model = os.environ.get("GROQ_MODEL", "openai/gpt-oss-120b")
+            if provider != "groq":
+                raise SystemExit(
+                    f"Unsupported LLM_PROVIDER={provider!r}. Expected one of: groq, anthropic, openai."
+                )
+            groq_model = os.environ.get("GROQ_MODEL", DEFAULT_MODELS["groq"])
             api_key = os.environ.get("GROQ_API_KEY", "").strip()
             if not api_key:
                 raise SystemExit(

@@ -30,20 +30,26 @@ def _make_connection_reset_safe_policy():
 
 
 def _parse_args():
-    from client.common import GROQ_TOOL_USE_MODELS
-    provider = os.environ.get("LLM_PROVIDER", "groq").strip().lower()
-    default_model = (
-        os.environ.get("ANTHROPIC_MODEL", "claude-sonnet-4-6")
-        if provider == "anthropic"
-        else os.environ.get("GROQ_MODEL", "openai/gpt-oss-120b")
-    )
+    from client.common import DEFAULT_MODELS, GROQ_TOOL_USE_MODELS
+    provider = os.environ.get("LLM_PROVIDER", "openai").strip().lower()
+    model_env = {
+        "anthropic": "ANTHROPIC_MODEL",
+        "groq": "GROQ_MODEL",
+        "openai": "OPENAI_MODEL",
+    }
     parser = __import__("argparse").ArgumentParser(
-        description="rosaOS client: kernel + process manager. Use a local OpenAI-compatible LLM, Groq, or Anthropic.",
+        description="rosaOS client: kernel + process manager. Use a local OpenAI-compatible LLM, OpenAI, Groq, or Anthropic.",
     )
     parser.add_argument(
         "--local",
         action="store_true",
-        help="Use local OpenAI-compatible endpoint (e.g. vLLM). Else use Groq API.",
+        help="Use local OpenAI-compatible endpoint (e.g. vLLM). Else use a hosted API provider.",
+    )
+    parser.add_argument(
+        "--provider",
+        choices=("openai", "groq", "anthropic"),
+        default=provider if provider in DEFAULT_MODELS else "openai",
+        help="Hosted LLM provider when not --local (default: env LLM_PROVIDER or openai).",
     )
     parser.add_argument(
         "--endpoint",
@@ -55,15 +61,27 @@ def _parse_args():
     parser.add_argument(
         "--anthropic",
         action="store_true",
-        default=provider == "anthropic",
-        help="Use Anthropic API instead of Groq when not --local.",
+        help="Use Anthropic API when not --local (legacy shortcut for --provider anthropic).",
+    )
+    parser.add_argument(
+        "--openai",
+        action="store_true",
+        help="Use OpenAI API when not --local (shortcut for --provider openai).",
     )
     parser.add_argument(
         "--model",
-        default=default_model,
+        default=None,
         metavar="MODEL",
-        help="Groq model when not --local. Tool-use models: %s (default: openai/gpt-oss-120b)."
-        % ", ".join(GROQ_TOOL_USE_MODELS),
+        help=(
+            "Hosted model when not --local. Defaults by provider: "
+            "openai=%s, groq=%s, anthropic=%s. Groq tool-use models: %s."
+        )
+        % (
+            DEFAULT_MODELS["openai"],
+            DEFAULT_MODELS["groq"],
+            DEFAULT_MODELS["anthropic"],
+            ", ".join(GROQ_TOOL_USE_MODELS),
+        ),
     )
     parser.add_argument(
         "--port",
@@ -72,7 +90,16 @@ def _parse_args():
         metavar="PORT",
         help="Client app port (default: 8765, or env RAG_AGENT_PORT).",
     )
-    return parser.parse_args()
+    args = parser.parse_args()
+    if args.anthropic and args.openai:
+        parser.error("--anthropic and --openai are mutually exclusive")
+    if args.anthropic:
+        args.provider = "anthropic"
+    elif args.openai:
+        args.provider = "openai"
+    if args.model is None:
+        args.model = os.environ.get(model_env[args.provider], DEFAULT_MODELS[args.provider])
+    return args
 
 
 if __name__ == "__main__":
@@ -90,13 +117,16 @@ if __name__ == "__main__":
         os.environ["LOCAL_LLM_PORT"] = str(args.endpoint)
     else:
         os.environ.pop("LOCAL_LLM", None)
-        # Select remote provider: Groq (default) or Anthropic.
-        if getattr(args, "anthropic", False):
+        # Select remote provider: OpenAI (default), Groq, or Anthropic.
+        if args.provider == "anthropic":
             os.environ["LLM_PROVIDER"] = "anthropic"
             os.environ["ANTHROPIC_MODEL"] = args.model
-        else:
+        elif args.provider == "groq":
             os.environ["LLM_PROVIDER"] = "groq"
             os.environ["GROQ_MODEL"] = args.model
+        else:
+            os.environ["LLM_PROVIDER"] = "openai"
+            os.environ["OPENAI_MODEL"] = args.model
     os.environ["RAG_AGENT_PORT"] = str(args.port)
 
     from client.common import init_all

@@ -90,14 +90,29 @@ def _dispatch_to_pool(worker_id: str, system_prompt: str, mcp_servers: list[str]
     return False
 
 
-def mark_worker_done(worker_id: str) -> str:
-    """Called when a worker finishes (callback received). Frees pool slot or removes one-off. Returns system prompt of the worker."""
-    for slot in _pool_slots:
+def mark_worker_done(worker_id: str, success: bool = True) -> str:
+    """Called when a worker finishes.
+
+    Successful pool workers are returned to the idle pool. Failed pool workers
+    are retired because MCP/Pydantic-AI failures can leave anyio cancel scopes or
+    toolset sessions in a poisoned state for subsequent tasks.
+    """
+    global _pool_slots
+    for i, slot in enumerate(list(_pool_slots)):
         if slot.get("worker_id") == worker_id:
-            slot["busy"] = False
-            slot["worker_id"] = None
             prompt = _worker_system_prompts.pop(worker_id, None)
-            logger.debug("Pool slot freed for worker_id=%s", worker_id)
+            if success:
+                slot["busy"] = False
+                slot["worker_id"] = None
+                logger.debug("Pool slot freed for worker_id=%s", worker_id)
+            else:
+                logger.warning("Retiring failed pool worker worker_id=%s", worker_id)
+                try:
+                    slot["process"].terminate()
+                except OSError:
+                    pass
+                _pool_slots.pop(i)
+                _ensure_pool()
             return prompt
     _worker_processes.pop(worker_id, None)
     return _worker_system_prompts.pop(worker_id, None)

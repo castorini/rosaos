@@ -159,6 +159,7 @@ def agent_worker(cur_agent: Agent, message: str, message_history: list = []) -> 
     """For running the agent in a background thread, we return a tuple of the result and a boolean indicating if the run was successful."""
     import time
     import logging
+    import traceback
     logger = logging.getLogger(__name__)
     t0 = time.perf_counter()
     try:
@@ -168,7 +169,8 @@ def agent_worker(cur_agent: Agent, message: str, message_history: list = []) -> 
         return result, True
     except Exception as e:
         elapsed = time.perf_counter() - t0
-        logger.warning("Agent run_sync failed after %.2fs: %s", elapsed, e)
+        details = "".join(traceback.format_exception(e))
+        logger.warning("Agent run_sync failed after %.2fs:\n%s", elapsed, details)
         return AgentRunResult(output=str(e)), False
 
 

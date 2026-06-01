@@ -8,6 +8,11 @@ Before moving, prefer read-only discovery tools such as `get_services`,
 `get_topics`, `get_service_details`, and `get_topic_details` if you need to
 confirm the currently available control surface.
 
+Do not call `connect_to_robot`. The laptop-side dog MCP server is already
+started by `scripts/start_dog_mcp.sh`, which connects it to PuppyPi rosbridge.
+Calling `connect_to_robot` from an agent can reset the MCP server's rosbridge
+connection and has caused worker TaskGroup/cancel-scope failures in rosaOS.
+
 Safe setup / posture services:
 ```json
 {

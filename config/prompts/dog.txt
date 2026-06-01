@@ -43,16 +43,76 @@ Run a predefined PuppyPi action group:
 }
 ```
 
-Velocity control is available on `/puppy_control/velocity_move` with message
-type `puppy_control_msgs/msg/Velocity`. The live ROS 2 graph also exposes
-`/puppy_control/velocity` with the same type and `/cmd_vel` with
-`geometry_msgs/msg/Twist`.
+Verified movement control uses `/puppy_control/velocity` with message type
+`puppy_control_msgs/msg/Velocity`. For user requests such as "walk forward",
+"move forward", or "back up", use this topic with one bounded
+`publish_for_durations` call, then send an all-zero stop message.
+
+Verified forward movement request:
 ```json
 {
-  "topic": "/puppy_control/velocity_move",
+  "topic": "/puppy_control/velocity",
+  "msg_type": "puppy_control_msgs/msg/Velocity",
+  "messages": [
+    {
+      "x": 5.0,
+      "y": 0.0,
+      "yaw_rate": 0.0
+    },
+    {
+      "x": 0.0,
+      "y": 0.0,
+      "yaw_rate": 0.0
+    }
+  ],
+  "durations": [
+    0.8,
+    0.5
+  ]
+}
+```
+
+Hiwonder's ROS 2 docs demonstrate forward walking with
+`/puppy_control/velocity` using `x: 5.0`, not small fractional values. A live
+test on June 1, 2026 confirmed that `x: 5.0` for 0.8 seconds moved the dog
+forward. Earlier `x: 0.15` commands made it trot in place.
+
+ROS 2 actions are present, but were not verified for movement through ROS MCP:
+
+- `/puppy/move_distance`, likely type `puppy_control_msgs/action/MoveDistance`.
+  Positive `distance` moves forward and negative `distance` moves backward.
+- `/puppy/rotate_angle`, likely type `puppy_control_msgs/action/RotateAngle`.
+- `/puppy/move_to_pose`, likely type `puppy_control_msgs/action/MoveToPose`.
+
+The following action goal was accepted by rosbridge but did not physically move
+the dog and timed out through MCP, so do not prefer it:
+```json
+{
+  "action_name": "/puppy/move_distance",
+  "action_type": "puppy_control_msgs/action/MoveDistance",
+  "goal": {
+    "distance": 10,
+    "speed": 0.5
+  },
+  "timeout": 15
+}
+```
+
+The connected PuppyPi's rosapi can list action names but may not expose enough
+action metadata for automatic schema discovery. If action result reporting times
+out, do not immediately retry movement. Confirm with the user whether the dog
+moved.
+
+The live ROS 2 graph also exposes `/puppy_control/velocity_move` with
+`puppy_control_msgs/msg/Velocity`, plus `/cmd_vel` with
+`geometry_msgs/msg/Twist`. Prefer `/puppy_control/velocity` because it was
+physically verified.
+```json
+{
+  "topic": "/puppy_control/velocity",
   "message_type": "puppy_control_msgs/msg/Velocity",
   "message": {
-    "x": 0.0,
+    "x": 5.0,
     "y": 0.0,
     "yaw_rate": 0.0
   }
@@ -61,15 +121,14 @@ type `puppy_control_msgs/msg/Velocity`. The live ROS 2 graph also exposes
 
 - The camera topic is `/image_raw`; compressed variants are also available.
 - Use ROS 2 message and service type names with `/msg/` and `/srv/`.
-- Use one bounded `publish_for_durations` call for motion, then stop. Do not
-  loop or repeatedly ask the model what to do next.
-- For a forward test, start with `x: 0.15`, `y: 0.0`, `yaw_rate: 0.0` for no
-  more than 1 second, followed immediately by all-zero velocity for at least
-  0.5 seconds.
+- For movement requests, prefer one bounded `publish_for_durations` call on
+  `/puppy_control/velocity`, then stop. For a forward test, use the documented
+  PuppyPi scale: `x: 5.0`, `y: 0.0`, `yaw_rate: 0.0` for no more than 1
+  second, followed immediately by all-zero velocity for at least 0.5 seconds.
 - Always stop by publishing zero velocity after any movement attempt.
 - Do not claim a distance traveled unless you have real odometry or user
   confirmation. PuppyPi may step/trot in place if the gait or velocity scale is
   wrong.
 - Do not assume the older `/puppy/move_distance_trigger` or
   `/puppy/rotate_angle_trigger` services exist; they were not present on this
-  connected PuppyPi.
+  connected PuppyPi. The ROS 2 action names were present instead.

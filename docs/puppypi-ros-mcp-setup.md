@@ -56,18 +56,68 @@ password: raspberrypi
 7. Switch the Mac to the same phone hotspot.
 8. VNC into the PuppyPi again.
 
-If the app shows an IPv4 address, use it in VNC Viewer. If it does not show an
-IP but the robot is visible by hostname, use:
+Usually, once the Mac and PuppyPi are both on the phone hotspot, the easiest VNC
+target is just:
 
 ```text
 vnc://raspberrypi.local
 ```
 
-If macOS resolves only IPv6, bracket the IPv6 address:
+You can open it from Terminal.app with:
+
+```bash
+open vnc://raspberrypi.local
+```
+
+If the app shows an IPv4 address, that also works in VNC Viewer. If
+`raspberrypi.local` does not work, use the fallback discovery commands below.
+
+If macOS resolves only IPv6 and you want to connect by address instead of
+hostname, bracket the IPv6 address:
 
 ```text
 vnc://[2605:...]
 ```
+
+### Fallback: Find The PuppyPi VNC Address From macOS
+
+Use this only if `vnc://raspberrypi.local` fails. On a phone hotspot, the
+PuppyPi may not get a normal IPv4 address that shows up in `arp -a`. Query mDNS
+directly:
+
+```bash
+dns-sd -G v4v6 raspberrypi.local
+```
+
+This command keeps running. Wait for an `Add` line for `raspberrypi.local`,
+copy the address, then press `Ctrl-C`.
+
+If the address is IPv6, put square brackets around it in VNC Viewer or in the
+macOS `open` command:
+
+```bash
+open 'vnc://[2605:b100:36b:c7f7:07fd:af6f:d175:39e6]'
+```
+
+To confirm it is really the PuppyPi VNC server:
+
+```bash
+nc -vz '2605:b100:36b:c7f7:07fd:af6f:d175:39e6' 5900
+```
+
+Expected success text includes `port 5900 [tcp/rfb] succeeded`.
+
+If mDNS does not return anything, wake up IPv6 neighbor discovery and inspect
+neighbors:
+
+```bash
+ping6 -c 2 ff02::1%en0
+ndp -an
+```
+
+Look for a non-Mac neighbor on `en0`, then test likely candidates with
+`nc -vz <address> 5900`. Link-local IPv6 addresses need the interface suffix,
+for example `fe80::681a:47ff:feb0:1a64%en0`.
 
 ## Start ROS 2 On PuppyPi
 
@@ -206,9 +256,35 @@ Important topics:
 - `/puppy_control/velocity_move` with `puppy_control_msgs/msg/Velocity`
 - `/puppy_control/velocity` with `puppy_control_msgs/msg/Velocity`
 
+Important actions:
+
+- `/puppy/move_distance`
+- `/puppy/rotate_angle`
+- `/puppy/move_to_pose`
+
 Important services:
 
 - `/puppy_control/go_home` with `std_srvs/srv/Empty`
 - `/puppy_control/set_running` with `std_srvs/srv/SetBool`
 - `/puppy_control/runActionGroup` with
   `puppy_control_msgs/srv/SetRunActionName`
+
+For physical movement, use `/puppy_control/velocity`. On June 1, 2026, a live
+test confirmed that publishing `puppy_control_msgs/msg/Velocity` with `x: 5.0`,
+`y: 0.0`, `yaw_rate: 0.0` for 0.8 seconds, followed by an all-zero stop message,
+moved the dog forward.
+
+Hiwonder's ROS 2 docs demonstrate direct forward velocity with
+`/puppy_control/velocity` and `x: 5.0`, followed by an all-zero stop message.
+Avoid tiny fractional values such as `x: 0.15`; that was observed to produce
+little or no translation.
+
+The live graph also exposed `/puppy/move_distance`, `/puppy/rotate_angle`, and
+`/puppy/move_to_pose`, but a `MoveDistance` goal sent through ROS MCP timed out
+and did not move the dog. Treat those actions as unverified until tested
+directly on the PuppyPi.
+
+`rosapi_node` is needed for MCP discovery tools such as `get_topics`,
+`get_services`, and action listing. Direct topic publishing through rosbridge can
+still work if `rosapi_node` dies, but restart `rosapi_node` before relying on
+introspection.

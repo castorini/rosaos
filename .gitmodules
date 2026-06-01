@@ -1,3 +1,4 @@
 [submodule "server/ros-mcp-server"]
 	path = server/ros-mcp-server
 	url = https://github.com/lilyjge/ros-mcp-server.git
+	branch = main

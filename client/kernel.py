@@ -4,6 +4,7 @@ Main Pydantic AI agent for the Reachy Mini robot.
 
 import queue
 import os
+import re
 import threading
 from datetime import datetime, timezone
 from pathlib import Path
@@ -18,6 +19,14 @@ from pydantic_ai.mcp import MCPServerStreamableHTTP
 _outgoing_lock = threading.Lock()
 _outgoing_messages: list[dict] = []  # pushed when event triggers agent response
 _message_history: list = []
+
+def _normalize_stt_text(text: str) -> str:
+    return re.sub(r"\s+", " ", re.sub(r"[^a-z0-9'\s]+", " ", text.lower())).strip()
+
+
+def _is_usable_stt_text(text: str) -> bool:
+    normalized = _normalize_stt_text(text)
+    return bool(normalized)
 
 # For chat client interfaces
 def _push_outgoing(role: str, content: str, worker_id: str | None = None, done: bool | None = None) -> None:
@@ -74,7 +83,7 @@ def main_app():
                     worker_id = payload.get("worker_id", "?")
                     message = payload.get("message", "")
                     done = payload.get("done", False)
-                    mark_worker_done(worker_id)
+                    mark_worker_done(worker_id, success=done)
                     worker_message = f"[Worker callback] {message} (worker_id={worker_id}, done={done})."
                 print("running agent with message: " + worker_message)
                 try:
@@ -123,8 +132,9 @@ def main_app():
         """Receive transcribed speech from the robot's mic (server STT loop). Queues as user speech and runs the agent; response is pushed to /updates."""
         text = (payload.get("text") or "").strip()
         print("received transcribed speech: " + text)
-        if not text:
-            return {"ok": False, "error": "missing or empty text"}
+        if not _is_usable_stt_text(text):
+            print("ignored unusable transcribed speech: " + repr(text))
+            return {"ok": False, "error": "missing, empty, or ignored text"}
         event_queue.put_nowait({"type": "speech", "text": text})
         return {"ok": True}
 

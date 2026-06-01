@@ -5,7 +5,7 @@ ROS Agentic Operating System: Control robots with LLMs through MCP with Reachy M
 ## Requirements
 Using Reachy Mini Lite for easy media stream.
 
-The client supports a **local OpenAI-compatible LLM** (e.g. vLLM), the **OpenAI API**, the **Groq API**, or the **Anthropic API**. Choose one via CLI or environment variables.
+The client supports a **local OpenAI-compatible LLM** (e.g. vLLM), the **OpenAI API**, the **Groq API**, the **Anthropic API**, or **OpenAI Codex subscription auth**. Choose one via CLI or environment variables.
 
 ### Local LLM (OpenAI-compatible endpoint)
 For local inference, run an OpenAI-compatible server (e.g. [vLLM](https://docs.vllm.ai/en/latest/getting_started/quickstart/)) and point the client at it:
@@ -36,6 +36,17 @@ Required for image analysis and better TTS experience.
 - **Windows (PowerShell):** `$env:OPENAI_API_KEY="your_key"`
 
 OpenAI API usage is billed through the API platform, separately from ChatGPT Free/Plus/Pro subscriptions. A ChatGPT subscription does not provide API quota for rosaOS.
+
+### OpenAI Codex subscription auth
+rosaOS can also use the sibling `../openai-subscription-wrapper` package to talk to the ChatGPT Codex backend with ChatGPT Plus/Pro subscription OAuth credentials:
+
+```bash
+scripts/reachy_mini_env/bin/openai-codex-client login
+# Or, if you already logged in with Pi:
+scripts/reachy_mini_env/bin/openai-codex-client import-pi
+```
+
+Then start the client with `--codex` or `--provider openai-codex`.
 
 ## Installation
 
@@ -92,7 +103,7 @@ scripts/reachy_mini_env/bin/python -m server --tts-elevenlabs --tts-voice M4zkun
 
 Start the operating system's client (default port 8765). 
 To use your own OpenAI compatible endpoint for the agents, start the client with `--local` and optionally `--endpoint` (port, default 6000). 
-To use OpenAI, Groq, or Anthropic, start the client with `--provider` or a shortcut flag and optionally specify a model with `--model`. 
+To use OpenAI, Groq, Anthropic, or OpenAI Codex subscription auth, start the client with `--provider` or a shortcut flag and optionally specify a model with `--model`.
 
 ```bash
 scripts/reachy_mini_env/bin/python -m client                    # OpenAI (requires OPENAI_API_KEY)
@@ -100,6 +111,7 @@ scripts/reachy_mini_env/bin/python -m client --local             # Local LLM at 
 scripts/reachy_mini_env/bin/python -m client --provider groq --model moonshotai/kimi-k2-instruct-0905 # Groq
 scripts/reachy_mini_env/bin/python -m client --anthropic --model claude-sonnet-4-6 # Anthropic API
 scripts/reachy_mini_env/bin/python -m client --openai --model gpt-5.2 # OpenAI API
+scripts/reachy_mini_env/bin/python -m client --codex --model gpt-5.5 # ChatGPT Codex subscription auth
 ```
 
 Now you can talk to the Reachy Mini directly.
@@ -126,9 +138,12 @@ All ports and the LLM source can be overridden by environment variables so scrip
 | `LOCAL_LLM_PORT` | `6000` | Port of local LLM when `LOCAL_LLM` is set. |
 | `LOCAL_LLM_ENDPOINT` | — | Full base URL (e.g. `https://localhost:6000/v1`) overrides port. |
 | `GROQ_MODEL` | `openai/gpt-oss-120b` | Groq model when not using local LLM. |
-| `LLM_PROVIDER` | `openai` | Remote LLM provider when not using local LLM. One of `openai`, `groq`, or `anthropic`. Usually set via CLI (`python -m client` flags). |
+| `LLM_PROVIDER` | `openai` | Remote LLM provider when not using local LLM. One of `openai`, `groq`, `anthropic`, or `openai-codex`. Usually set via CLI (`python -m client` flags). |
 | `ANTHROPIC_API_KEY` | — | **Required** when using Anthropic (`--anthropic` or `LLM_PROVIDER=anthropic`). Anthropic API key from `https://console.anthropic.com`. |
 | `ANTHROPIC_MODEL` | `claude-sonnet-4-6` | Anthropic model name when `LLM_PROVIDER=anthropic` (overridden by `--model` when using `--anthropic`). |
+| `OPENAI_CODEX_MODEL` | `gpt-5.5` | OpenAI Codex model name when `LLM_PROVIDER=openai-codex` (overridden by `--model` when using `--codex` or `--provider openai-codex`). |
+| `OPENAI_CODEX_AUTH_FILE` | `~/.openai-codex-client/auth.json` | Optional auth file for the sibling OpenAI Codex client adapter. If absent, the adapter can fall back to Pi's `~/.pi/agent/auth.json`. |
+| `OPENAI_CODEX_ORIGINATOR` | `rosaos` | Originator header for OpenAI Codex subscription requests. |
 | `RAG_AGENT_PORT` | `8765` | Client app (kernel + chat) port. |
 | `RAG_AGENT_URL` | — | Full base URL for chat CLI (e.g. `http://localhost:8765`). |
 | `PROCESS_SERVER_PORT` | `7001` | Process manager MCP server port. |
@@ -136,9 +151,16 @@ All ports and the LLM source can be overridden by environment variables so scrip
 | `REACHY_MCP_PORT` | `5001` | Reachy Mini MCP server port (when starting `python -m server`). |
 | `STT_CALLBACK_URL` | from `RAG_AGENT_PORT` | Where the server POSTs transcribed speech (default `http://localhost:{RAG_AGENT_PORT}/stt`). |
 | `STT_WAKE_WORD` | `hello` | Wake word used when eye contact is absent. After the wake word, Reachy turns toward the detected audio direction and then listens for the command. |
-| `STT_SILENCE_THRESHOLD_SEC` | `0.9` | Silence duration before an utterance is considered complete. Increase if speech gets cut off; decrease for snappier turn-taking. |
-| `STT_VAD_CHUNK_DURATION` | `0.2` | Audio chunk size used by voice activity detection. Smaller values respond sooner with slightly more CPU overhead. |
-| `STT_MIN_SPEECH_DURATION_SEC` | `0.4` | Minimum accepted speech duration, used to ignore noise. |
+| `STT_WAKE_WORD_ALIASES` | `hello,helo,hallo,hullo` | Comma-separated wake-word transcription variants accepted while listening for activation. |
+| `STT_SILENCE_THRESHOLD_SEC` | `0.55` | Silent audio duration before an utterance is considered complete. Increase if speech gets cut off; decrease for snappier turn-taking. |
+| `STT_VAD_CHUNK_DURATION` | `0.12` | Audio chunk size used by voice activity detection. Smaller values respond sooner with slightly more CPU overhead. |
+| `STT_MIN_SPEECH_DURATION_SEC` | `0.35` | Minimum accepted command speech duration, used to ignore noise. |
+| `STT_MIN_WAKE_SPEECH_DURATION_SEC` | `0.25` | Minimum accepted wake-check speech duration, kept lower so short wake words can activate. |
+| `STT_MIN_SPEECH_CHUNKS` | `3` | Minimum number of speech-positive chunks before command audio can be transcribed. |
+| `STT_MIN_WAKE_SPEECH_CHUNKS` | `2` | Minimum number of speech-positive chunks before wake-check audio can be transcribed. |
+| `STT_PRE_SPEECH_BUFFER_SEC` | `0.6` | Audio kept before speech detection starts, to preserve the first syllables of an utterance. |
+| `STT_SIMPLE_RMS_THRESHOLD` | `0.035` | Energy threshold used as a fallback/safety net when neural VAD misses short speech. Raise this if background noise is detected as speech. |
+| `STT_MIN_TRANSCRIBE_RMS` | `0.01` | Minimum full-utterance RMS before a transcript is allowed to be posted. |
 | `EYE_CONTACT_POLL_INTERVAL` | `0.16` | Seconds between eye-contact camera checks while waiting for activation. |
 | `AGENT_RETRIES` | `3` | Pydantic-AI retry count for kernel and worker agents. Higher values can hide transient failures but feel slower when a provider is unhealthy. |
 | `TTS_ENGINE` | `groq` | TTS backend: `groq` or `elevenlabs`. |

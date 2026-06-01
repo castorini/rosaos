@@ -5,6 +5,7 @@ from reachy_mini.utils import create_head_pose
 import threading
 from typing import Any
 import httpx
+import os
 import time
 import math
 import json
@@ -28,6 +29,23 @@ _MOVE_TYPES_PATH = Path(__file__).parent / "move_types.json"
 moves_: dict[str, list[str]] = json.loads(_MOVE_TYPES_PATH.read_text())
 
 _HEAD_MOVE_INCREMENT = 45
+_LISTENING_ANTENNA_X = math.radians(-20)
+_LISTENING_ANTENNA_Y = math.radians(20)
+_AUDIO_TURN_DURATION_SEC = float(os.environ.get("REACHY_AUDIO_TURN_DURATION_SEC", "2.5"))
+_BACKGROUND_MOVE_IDS: set[str] = set()
+_BACKGROUND_MOVE_IDS_LOCK = threading.Lock()
+
+
+def _move_uuid(move: dict[str, Any]) -> str | None:
+    uuid = move.get("uuid")
+    return str(uuid) if uuid else None
+
+
+def _track_background_move(move: dict[str, Any]) -> None:
+    uuid = _move_uuid(move)
+    if uuid:
+        with _BACKGROUND_MOVE_IDS_LOCK:
+            _BACKGROUND_MOVE_IDS.add(uuid)
 
 def _get_running_moves() -> list[dict[str, str]]:
     """Return list of currently running moves from the daemon."""
@@ -50,8 +68,8 @@ def _go_to(head_x: float = 0,
         head_yaw: float = 0,
         head_mm: bool = False,
         head_degrees: bool = True,
-        antenna_x: float = 0,
-        antenna_y: float = 0,
+        antenna_x: float | None = 0,
+        antenna_y: float | None = 0,
         body_yaw: float | None = 0.0,
         duration: float = 0.5,
         method: str = "minjerk",
@@ -76,18 +94,38 @@ def _go_to(head_x: float = 0,
                 "pitch": head_pitch,
                 "yaw": head_yaw,
             } if not keep_head_positon else keep_head_positon,
-            "antennas": [antenna_x, antenna_y],
             "duration": duration,
             "interpolation": method,
         }
+        if antenna_x is not None and antenna_y is not None:
+            payload["antennas"] = [antenna_x, antenna_y]
         if body_yaw is not None:
             payload["body_yaw"] = body_yaw
 
         resp = _daemon.post("/move/goto", json=payload)
         resp.raise_for_status()
 
+
+def _go_to_antennas(
+        antenna_x: float = 0,
+        antenna_y: float = 0,
+        duration: float = 0.5,
+        method: str = "minjerk") -> str:
+    payload: dict[str, Any] = {
+        "antennas": [antenna_x, antenna_y],
+        "duration": duration,
+        "interpolation": method,
+    }
+    resp = _daemon.post("/move/goto", json=payload)
+    resp.raise_for_status()
+    move = resp.json()
+    _track_background_move(move)
+    return f"Move started: {move}"
+
+
 def move_head_left(multiple: int = 1) -> str:
     """Example function to move head left."""
+    _stop_all_moves()
     pose = _get_head_pose()
     pose["yaw"] += math.radians(_HEAD_MOVE_INCREMENT * multiple)
     pose["pitch"] = 0
@@ -100,6 +138,7 @@ def move_head_left(multiple: int = 1) -> str:
 
 def move_head_right(multiple: int = 1) -> str:
     """Example function to move head right."""
+    _stop_all_moves()
     pose = _get_head_pose()
     pose["yaw"] -= math.radians(_HEAD_MOVE_INCREMENT * multiple)
     pose["pitch"] = 0
@@ -139,14 +178,50 @@ def _stop_all_moves() -> list[str]:
     return messages
 
 
-def listening_pose(mini: ReachyMini, listening: threading.Event) -> None:
-    """Move to a listening pose (head slightly down, facing forward)."""
-    curr_head = _get_head_pose()
+def _stop_background_moves() -> list[str]:
+    """Stop only background moves created by this module, such as listening cues."""
+    running = _get_running_moves()
+    running_ids = {_move_uuid(move) for move in running}
+    with _BACKGROUND_MOVE_IDS_LOCK:
+        _BACKGROUND_MOVE_IDS.intersection_update(uuid for uuid in running_ids if uuid)
+        background_ids = set(_BACKGROUND_MOVE_IDS)
+
+    messages = []
+    for move in running:
+        uuid = _move_uuid(move)
+        if not uuid or uuid not in background_ids:
+            continue
+        try:
+            stop_resp = _daemon.post("/move/stop", json={"uuid": uuid})
+            stop_resp.raise_for_status()
+            messages.append(stop_resp.json().get("message", f"Stopped {uuid}"))
+            with _BACKGROUND_MOVE_IDS_LOCK:
+                _BACKGROUND_MOVE_IDS.discard(uuid)
+        except httpx.HTTPStatusError:
+            messages.append(f"Failed to stop {uuid}")
+    return messages
+
+
+def _wait_while_listening(listening: threading.Event, duration: float) -> bool:
+    deadline = time.monotonic() + duration
     while listening.is_set():
-        _go_to(antenna_x=math.radians(-20), antenna_y=math.radians(20), duration=1, keep_head_positon=curr_head)
-        _wait_for_moves_to_finish()
-        _go_to(antenna_x=0, antenna_y=0, duration=1, keep_head_positon=curr_head)
-        _wait_for_moves_to_finish()
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            return True
+        time.sleep(min(0.05, remaining))
+    return False
+
+
+def listening_pose(mini: ReachyMini, listening: threading.Event) -> None:
+    """Run the visible listening indicator without taking over head pose."""
+    while listening.is_set():
+        _go_to_antennas(antenna_x=_LISTENING_ANTENNA_X, antenna_y=_LISTENING_ANTENNA_Y, duration=1)
+        if not _wait_while_listening(listening, 1):
+            break
+        _go_to_antennas(antenna_x=0, antenna_y=0, duration=1)
+        if not _wait_while_listening(listening, 1):
+            break
+    _go_to_antennas(antenna_x=0, antenna_y=0, duration=0.4)
 
 def listening_worker(mini: ReachyMini, stop: threading.Event, listening: threading.Event) -> None:
     """Worker function to run the listening pose in a separate thread."""
@@ -199,8 +274,24 @@ def _doa_degrees_to_head_yaw(angle_degrees: float) -> float:
     yaw = 90.0 - (angle_degrees % 360.0)
     return ((yaw + 180.0) % 360.0) - 180.0
 
-def move_to_audio(mini: ReachyMini, doa: tuple[float, bool] | None = None) -> str:
+def move_to_audio(
+    mini: ReachyMini,
+    doa: tuple[float, bool] | None = None,
+    interrupt: bool = False,
+    stop_background_moves: bool = False,
+    wait_for_turn: bool = False,
+) -> str:
     print("Getting direction of arrival from audio...")
+    if stop_background_moves:
+        _stop_background_moves()
+
+    running_moves = _get_running_moves()
+    if running_moves:
+        if not interrupt:
+            print("Skipping audio direction turn because a move is already running.")
+            return "Audio direction detected, but existing movement was left uninterrupted."
+        _stop_all_moves()
+
     if doa is None:
         print("No DoA provided, fetching from mini.media.get_DoA()")
         doa = mini.media.get_DoA()
@@ -214,8 +305,15 @@ def move_to_audio(mini: ReachyMini, doa: tuple[float, bool] | None = None) -> st
                 f"Direction of Arrival (DoA) angle: {angle_degrees:.2f} degrees"
                 f" -> head_yaw: {head_yaw:.2f} degrees"
             )
-            _go_to(head_yaw=head_yaw, duration=2)
-            center_to_face(mini, head_yaw=head_yaw)
+            _go_to(
+                head_yaw=head_yaw,
+                antenna_x=None,
+                antenna_y=None,
+                body_yaw=None,
+                duration=_AUDIO_TURN_DURATION_SEC,
+            )
+            if wait_for_turn:
+                _wait_for_moves_to_finish(timeout=_AUDIO_TURN_DURATION_SEC + 0.5, sleep_timer=0.05)
         else:
             print("DoA data is invalid.")
     else:

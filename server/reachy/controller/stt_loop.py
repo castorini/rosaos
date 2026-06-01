@@ -8,6 +8,8 @@ from __future__ import annotations
 import io
 import os
 import queue
+import re
+import sys
 import threading
 import time
 import wave
@@ -18,7 +20,7 @@ import dotenv
 import httpx
 from reachy_mini import ReachyMini
 from .vision import wait_for_eye_contact
-from .controls import move_to_audio, center_to_face, listening_worker
+from .controls import move_to_audio, listening_worker
 dotenv.load_dotenv()
 
 # Groq speech-to-text (OpenAI-compatible)
@@ -30,23 +32,44 @@ STT_URL = os.environ.get("STT_CALLBACK_URL") or "http://localhost:%s/stt" % os.e
 
 # VAD settings. Lower defaults keep the robot from feeling like it is waiting
 # after the user finishes speaking; env vars make local tuning easy.
-SILENCE_THRESHOLD_SEC = float(os.environ.get("STT_SILENCE_THRESHOLD_SEC", "0.9"))
-VAD_CHUNK_DURATION = float(os.environ.get("STT_VAD_CHUNK_DURATION", "0.2"))
-MIN_SPEECH_DURATION_SEC = float(os.environ.get("STT_MIN_SPEECH_DURATION_SEC", "0.4"))
+SILENCE_THRESHOLD_SEC = float(os.environ.get("STT_SILENCE_THRESHOLD_SEC", "0.55"))
+VAD_CHUNK_DURATION = float(os.environ.get("STT_VAD_CHUNK_DURATION", "0.12"))
+MIN_SPEECH_DURATION_SEC = float(os.environ.get("STT_MIN_SPEECH_DURATION_SEC", "0.35"))
+MIN_WAKE_SPEECH_DURATION_SEC = float(os.environ.get("STT_MIN_WAKE_SPEECH_DURATION_SEC", "0.25"))
+MIN_SPEECH_CHUNKS = int(os.environ.get("STT_MIN_SPEECH_CHUNKS", "3"))
+MIN_WAKE_SPEECH_CHUNKS = int(os.environ.get("STT_MIN_WAKE_SPEECH_CHUNKS", "2"))
+SIMPLE_RMS_THRESHOLD = float(os.environ.get("STT_SIMPLE_RMS_THRESHOLD", "0.035"))
+MIN_TRANSCRIBE_RMS = float(os.environ.get("STT_MIN_TRANSCRIBE_RMS", "0.01"))
 
 # Sleep between get_audio_sample() polls (default backend)
 POLL_INTERVAL = 0.02
 
 # Keep a short pre-speech context so first phonemes are not clipped.
-PRE_SPEECH_BUFFER_SEC = 0.25
+PRE_SPEECH_BUFFER_SEC = float(os.environ.get("STT_PRE_SPEECH_BUFFER_SEC", "0.6"))
 
 # Bounded queue between capture and transcription workers.
 UTTERANCE_QUEUE_SIZE = 8
 
 # Wake word to trigger recording when eye contact is absent
 WAKE_WORD = os.environ.get("STT_WAKE_WORD", "hello").strip().lower() or "hello"
+WAKE_WORD_ALIASES = [
+    alias.strip().lower()
+    for alias in os.environ.get("STT_WAKE_WORD_ALIASES", "hello,helo,hallo,hullo").split(",")
+    if alias.strip()
+]
 EYE_CONTACT_POLL_INTERVAL = float(os.environ.get("EYE_CONTACT_POLL_INTERVAL", "0.16"))
 POST_TRIGGER_SPEECH_TIMEOUT_SEC = float(os.environ.get("POST_TRIGGER_SPEECH_TIMEOUT_SEC", "8.0"))
+STT_DEBUG = os.environ.get("STT_DEBUG", "1").strip().lower() not in {"0", "false", "no", "off"}
+WAKE_IDLE_LOG_INTERVAL_SEC = float(os.environ.get("STT_WAKE_IDLE_LOG_INTERVAL_SEC", "3.0"))
+
+ActivationSource = str
+Utterance = tuple[np.ndarray, int, tuple[float, bool], float, float]
+_LOG_LOCK = threading.Lock()
+
+
+def _log(message: str) -> None:
+    with _LOG_LOCK:
+        print(message, flush=True)
 
 
 def _float32_to_wav_bytes(audio: np.ndarray, sample_rate: int) -> bytes:
@@ -97,8 +120,23 @@ def _has_speech_simple(audio_chunk: np.ndarray, sample_rate: int) -> bool:
     if audio_chunk.size == 0:
         return False
     rms = np.sqrt(np.mean(audio_chunk**2))
-    threshold = 0.04
-    return rms > threshold
+    return rms > SIMPLE_RMS_THRESHOLD
+
+
+def _audio_rms(audio: np.ndarray) -> float:
+    if audio.size == 0:
+        return 0.0
+    return float(np.sqrt(np.mean(audio.astype(np.float32, copy=False) ** 2)))
+
+
+def _has_speech(audio_chunk: np.ndarray, sample_rate: int, vad_model, get_speech_timestamps) -> bool:
+    """Use Silero when available, with RMS as a safety net for clipped/short utterances."""
+    return _has_speech_simple(audio_chunk, sample_rate) or _has_speech_vad(
+        audio_chunk,
+        sample_rate,
+        vad_model,
+        get_speech_timestamps,
+    )
 
 
 def _transcribe(audio_data: np.ndarray, sample_rate: int) -> str:
@@ -107,6 +145,7 @@ def _transcribe(audio_data: np.ndarray, sample_rate: int) -> str:
         return ""
     api_key = os.environ.get("GROQ_API_KEY")
     if not api_key:
+        print("STT transcribe skipped: GROQ_API_KEY is not set", file=sys.stderr)
         return ""
     audio = audio_data.astype(np.float32, copy=False)
 
@@ -128,16 +167,53 @@ def _transcribe(audio_data: np.ndarray, sample_rate: int) -> str:
             )
             response.raise_for_status()
             data = response.json()
-            return (data.get("text") or "").strip()
+            text = (data.get("text") or "").strip()
+            if STT_DEBUG:
+                print(f"STT transcribed {len(audio) / target_sr:.2f}s -> {text!r}")
+            return text
     except (httpx.HTTPError, KeyError) as e:
         if isinstance(e, httpx.HTTPStatusError) and e.response is not None:
             print(
                 f"Error transcribing audio: {e.response.text}",
-                file=__import__("sys").stderr,
+                file=sys.stderr,
             )
         else:
-            print(f"Error transcribing audio: {e}", file=__import__("sys").stderr)
+            print(f"Error transcribing audio: {e}", file=sys.stderr)
     return ""
+
+
+def _normalize_transcript(text: str) -> str:
+    return re.sub(r"\s+", " ", re.sub(r"[^a-z0-9'\s]+", " ", text.lower())).strip()
+
+
+def _should_post_transcript(text: str, audio: np.ndarray, sample_rate: int) -> bool:
+    """Filter blank transcripts and audio that is too weak to trust."""
+    text = text.strip()
+    normalized = _normalize_transcript(text)
+    if not normalized:
+        if STT_DEBUG and text:
+            _log(f"STT rejected no-content transcript {text!r}")
+        return False
+    rms = _audio_rms(audio)
+    duration = len(audio) / sample_rate if sample_rate > 0 else 0.0
+    if rms < MIN_TRANSCRIBE_RMS:
+        if STT_DEBUG:
+            _log(f"STT rejected low-energy transcript {text!r}: rms={rms:.4f}, duration={duration:.2f}s")
+        return False
+    return True
+
+
+def _has_wake_word(text: str) -> bool:
+    tokens = re.findall(r"[a-z0-9']+", text.lower())
+    for alias in {WAKE_WORD, *WAKE_WORD_ALIASES}:
+        alias_tokens = re.findall(r"[a-z0-9']+", alias)
+        if not alias_tokens:
+            continue
+        if len(alias_tokens) == 1 and alias_tokens[0] in tokens:
+            return True
+        if any(tokens[i : i + len(alias_tokens)] == alias_tokens for i in range(len(tokens) - len(alias_tokens) + 1)):
+            return True
+    return False
 
 
 def _record_until_silence(
@@ -145,19 +221,23 @@ def _record_until_silence(
     vad_model,
     get_speech_timestamps,
     stop_event: threading.Event,
-) -> tuple[np.ndarray, int, tuple[float, bool]]:
+    min_duration_sec: float = MIN_SPEECH_DURATION_SEC,
+    min_speech_chunks: int = MIN_SPEECH_CHUNKS,
+) -> tuple[np.ndarray, int, tuple[float, bool], float]:
     """Record from mini.media until speech ends (VAD detects silence for SILENCE_THRESHOLD_SEC).
     Returns (accumulated_audio, sample_rate, doa). Accumulates audio while speech is detected.
     """
     sample_rate = int(mini.media.get_input_audio_samplerate())
     if sample_rate <= 0:
-        return np.array([]), 16000, (0.0, False)
+        return np.array([]), 16000, (0.0, False), 0.0
     chunk_target_samples = max(1, int(sample_rate * VAD_CHUNK_DURATION))
     pre_roll_target_samples = max(1, int(sample_rate * PRE_SPEECH_BUFFER_SEC))
 
     accumulated_samples: list[np.ndarray] = []
     speech_started = False
-    last_speech_time = 0.0
+    speech_started_at = 0.0
+    speech_chunks = 0
+    silent_samples_after_speech = 0
     chunk_parts: list[np.ndarray] = []
     chunk_part_samples = 0
     pre_roll_chunks: deque[np.ndarray] = deque()
@@ -187,9 +267,9 @@ def _record_until_silence(
         print("started recording")
         doa_thread.start()
     except Exception as e:
-        print(f"Error starting recording: {e}", file=__import__("sys").stderr)
+        print(f"Error starting recording: {e}", file=sys.stderr)
         doa_stop.set()
-        return np.array([]), sample_rate, doa_result[0]
+        return np.array([]), sample_rate, doa_result[0], 0.0
     try:
         while not stop_event.is_set():
             sample = mini.media.get_audio_sample()
@@ -212,24 +292,22 @@ def _record_until_silence(
             chunk_parts.clear()
             chunk_part_samples = 0
 
-            has_speech = False
-            if vad_model is not None:
-                has_speech = _has_speech_vad(chunk_audio, sample_rate, vad_model, get_speech_timestamps)
-            else:
-                has_speech = _has_speech_simple(chunk_audio, sample_rate)
+            has_speech = _has_speech(chunk_audio, sample_rate, vad_model, get_speech_timestamps)
             if has_speech:
-                now = time.monotonic()
+                if not speech_started:
+                    speech_started_at = time.monotonic()
                 speech_started = True
-                last_speech_time = now
+                speech_chunks += 1
+                silent_samples_after_speech = 0
                 if pre_roll_chunks:
                     accumulated_samples.extend(pre_roll_chunks)
                     pre_roll_chunks.clear()
                     pre_roll_samples = 0
                 accumulated_samples.append(chunk_audio)
             elif speech_started:
-                now = time.monotonic()
                 accumulated_samples.append(chunk_audio)
-                if (now - last_speech_time) >= SILENCE_THRESHOLD_SEC:
+                silent_samples_after_speech += chunk_audio.size
+                if (silent_samples_after_speech / sample_rate) >= SILENCE_THRESHOLD_SEC:
                     break
 
             if not speech_started:
@@ -243,30 +321,39 @@ def _record_until_silence(
         try:
             mini.media.stop_recording()
         except Exception as e:
-            print(f"Error stopping recording: {e}", file=__import__("sys").stderr)
+            print(f"Error stopping recording: {e}", file=sys.stderr)
     with doa_lock:
         doa = doa_result[0]
     if not accumulated_samples:
-        return np.array([]), sample_rate, doa
+        return np.array([]), sample_rate, doa, 0.0
+    if speech_chunks < min_speech_chunks:
+        if STT_DEBUG:
+            _log(f"STT discarded weak utterance: speech_chunks={speech_chunks}, required={min_speech_chunks}")
+        return np.array([]), sample_rate, doa, 0.0
     audio = np.concatenate(accumulated_samples, axis=0)
     duration = len(audio) / sample_rate
-    if duration < MIN_SPEECH_DURATION_SEC:
-        return np.array([]), sample_rate, doa
-    return audio, sample_rate, doa
+    if duration < min_duration_sec:
+        if STT_DEBUG:
+            _log(f"STT discarded short utterance: {duration:.2f}s")
+        return np.array([]), sample_rate, doa, 0.0
+    if STT_DEBUG:
+        _log(f"STT captured utterance: {duration:.2f}s, rms={_audio_rms(audio):.4f}")
+    return audio, sample_rate, doa, speech_started_at
 
 
 def _wait_for_trigger(
     mini: ReachyMini,
-    utterance_queue: queue.Queue[tuple[np.ndarray, int]],
+    utterance_queue: queue.Queue[Utterance],
     stop_event: threading.Event,
-) -> bool:
+) -> ActivationSource | None:
     """Block until eye contact is detected OR the configured wake word is heard.
 
     Runs the eye-contact watcher in a background thread while this thread
-    records audio and checks transcriptions for the wake word. Returns True
-    if either condition fired, False if stop_event was set before either.
+    checks captured utterances for the wake word. Returns the activation source,
+    or None if stop_event was set before either trigger fired.
     """
     triggered = threading.Event()
+    activation_source: list[ActivationSource | None] = [None]
     # combined_stop: set when *either* the caller wants us to stop OR we have
     # already been triggered (so both the eye-contact watcher and the recording
     # loop can exit cleanly).
@@ -282,17 +369,21 @@ def _wait_for_trigger(
         if wait_for_eye_contact(mini, combined_stop, poll_interval=EYE_CONTACT_POLL_INTERVAL):
             print("trigger: eye contact")
             if not combined_stop.is_set():
+                activation_source[0] = "eye_contact"
                 triggered.set()
-                center_to_face(mini)
 
     threading.Thread(target=_sync_combined, daemon=True).start()
     threading.Thread(target=_eye_contact_watcher, daemon=True).start()
 
     # Record audio in a loop and check each utterance for the wake word.
+    next_idle_log_at = time.monotonic() + WAKE_IDLE_LOG_INTERVAL_SEC
     while not combined_stop.is_set():
         try:
-            audio, sr, doa = utterance_queue.get(timeout=0.1)
+            audio, sr, doa, _speech_started_at, _captured_at = utterance_queue.get(timeout=0.1)
         except queue.Empty:
+            if STT_DEBUG and time.monotonic() >= next_idle_log_at:
+                _log("wake-word listener: no completed utterance yet")
+                next_idle_log_at = time.monotonic() + WAKE_IDLE_LOG_INTERVAL_SEC
             continue
         if combined_stop.is_set():
             break
@@ -300,16 +391,17 @@ def _wait_for_trigger(
             continue
         text = _transcribe(audio, sr)
         print(f"wake-word check: {text!r}")
-        if text and WAKE_WORD in text.lower():
-            with utterance_queue.mutex:
-                utterance_queue.queue.clear()
+        if text and _has_wake_word(text):
             print("trigger: wake word")
             if not combined_stop.is_set():
+                activation_source[0] = "wake_word"
                 triggered.set()
-                move_to_audio(mini, doa)
+                move_to_audio(mini, doa, stop_background_moves=True, wait_for_turn=True)
             break
 
-    return triggered.is_set() and not stop_event.is_set()
+    if triggered.is_set() and not stop_event.is_set():
+        return activation_source[0] or "unknown"
+    return None
 
 
 def _capture_utterances_worker(
@@ -317,19 +409,48 @@ def _capture_utterances_worker(
     vad_model,
     get_speech_timestamps,
     stop_event: threading.Event,
-    utterance_queue: queue.Queue[tuple[np.ndarray, int]],
+    utterance_queue: queue.Queue[Utterance],
 ) -> None:
     """Capture utterances continuously and hand them to the transcription queue."""
     while not stop_event.is_set():
-        audio, sr, doa = _record_until_silence(mini, vad_model, get_speech_timestamps, stop_event)
-        if stop_event.is_set():
-            break
-        if audio.size == 0:
-            continue
         try:
-            utterance_queue.put((audio, sr, doa), timeout=0.1)
+            audio, sr, doa, speech_started_at = _record_until_silence(
+                mini,
+                vad_model,
+                get_speech_timestamps,
+                stop_event,
+                min_duration_sec=MIN_WAKE_SPEECH_DURATION_SEC,
+                min_speech_chunks=MIN_WAKE_SPEECH_CHUNKS,
+            )
+            if stop_event.is_set():
+                break
+            if audio.size == 0:
+                continue
+            utterance_queue.put((audio, sr, doa, speech_started_at, time.monotonic()), timeout=0.1)
+            if STT_DEBUG:
+                _log(f"STT queued utterance; queue_size={utterance_queue.qsize()}")
         except queue.Full:
-            print("STT queue is full; dropping utterance", file=__import__("sys").stderr)
+            print("STT queue is full; dropping utterance", file=sys.stderr)
+        except Exception as e:
+            print(f"STT capture worker error: {type(e).__name__}: {e}", file=sys.stderr)
+            time.sleep(0.5)
+
+
+def _get_next_command_utterance(
+    utterance_queue: queue.Queue[Utterance],
+    not_before: float,
+    timeout: float,
+) -> tuple[np.ndarray, int, tuple[float, bool]]:
+    """Return the next utterance captured after listening mode started."""
+    deadline = time.monotonic() + timeout
+    while True:
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            raise queue.Empty
+        audio, sr, doa, speech_started_at, _captured_at = utterance_queue.get(timeout=remaining)
+        if speech_started_at >= not_before:
+            return audio, sr, doa
+        _log("ignoring pre-listening utterance")
 
 
 def run_stt_loop(mini: ReachyMini, stt_url: str | None = None, stop_event: threading.Event | None = None) -> None:
@@ -345,7 +466,7 @@ def run_stt_loop(mini: ReachyMini, stt_url: str | None = None, stop_event: threa
     if stop.is_set():
         return
 
-    utterance_queue: queue.Queue[tuple[np.ndarray, int]] = queue.Queue(maxsize=UTTERANCE_QUEUE_SIZE)
+    utterance_queue: queue.Queue[Utterance] = queue.Queue(maxsize=UTTERANCE_QUEUE_SIZE)
     capture_thread = threading.Thread(
         target=_capture_utterances_worker,
         args=(mini, vad_model, get_speech_timestamps, stop, utterance_queue),
@@ -365,19 +486,26 @@ def run_stt_loop(mini: ReachyMini, stt_url: str | None = None, stop_event: threa
 
     while not stop.is_set():
         print(f"waiting for eye contact or wake word '{WAKE_WORD}'...")
-        if not _wait_for_trigger(mini, utterance_queue, stop):
+        activation_source = _wait_for_trigger(mini, utterance_queue, stop)
+        if activation_source is None:
             continue
+        print(f"activated by {activation_source}; entering listening mode")
         listening.set()  # start the listening pose thread while we wait for the user to speak after the trigger
+        listening_started_at = time.monotonic()
         print("capture triggered, waiting for speech...")
         try:
-            audio, sr, _ = utterance_queue.get(timeout=POST_TRIGGER_SPEECH_TIMEOUT_SEC)
+            audio, sr, _ = _get_next_command_utterance(
+                utterance_queue,
+                listening_started_at,
+                POST_TRIGGER_SPEECH_TIMEOUT_SEC,
+            )
         except queue.Empty:
             print("No speech detected after trigger.")
             listening.clear()  # stop the listening pose thread once we have a transcription to send
             continue
         print("transcribing")
         text = _transcribe(audio, sr)
-        if not text:
+        if not _should_post_transcript(text, audio, sr):
             listening.clear()
             continue
         print("posting to client:", text)

@@ -34,7 +34,7 @@ def register_robot_tools(mcp: FastMCP, get_mini: Callable[[], ReachyMini]):
     def move_to_audio() -> str:
         """Move Reachy Mini's head towards the direction of arrival of the last recorded audio."""
         _log_tool_entered("move_to_audio")
-        return controller.move_to_audio(get_mini())
+        return controller.move_to_audio(get_mini(), interrupt=True)
 
     @mcp.tool()
     def stop_move() -> str:

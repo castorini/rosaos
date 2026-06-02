@@ -39,6 +39,7 @@ MIN_WAKE_SPEECH_DURATION_SEC = float(os.environ.get("STT_MIN_WAKE_SPEECH_DURATIO
 MIN_SPEECH_CHUNKS = int(os.environ.get("STT_MIN_SPEECH_CHUNKS", "3"))
 MIN_WAKE_SPEECH_CHUNKS = int(os.environ.get("STT_MIN_WAKE_SPEECH_CHUNKS", "2"))
 SIMPLE_RMS_THRESHOLD = float(os.environ.get("STT_SIMPLE_RMS_THRESHOLD", "0.035"))
+WAKE_SIMPLE_RMS_THRESHOLD = float(os.environ.get("STT_WAKE_SIMPLE_RMS_THRESHOLD", "0.025"))
 MIN_TRANSCRIBE_RMS = float(os.environ.get("STT_MIN_TRANSCRIBE_RMS", "0.01"))
 
 # Sleep between get_audio_sample() polls (default backend)
@@ -115,12 +116,16 @@ def _has_speech_vad(audio_chunk: np.ndarray, sample_rate: int, vad_model, get_sp
         return False
 
 
-def _has_speech_simple(audio_chunk: np.ndarray, sample_rate: int) -> bool:
+def _has_speech_simple(
+    audio_chunk: np.ndarray,
+    sample_rate: int,
+    threshold: float = SIMPLE_RMS_THRESHOLD,
+) -> bool:
     """Simple energy-based VAD fallback: check if RMS exceeds threshold."""
     if audio_chunk.size == 0:
         return False
     rms = np.sqrt(np.mean(audio_chunk**2))
-    return rms > SIMPLE_RMS_THRESHOLD
+    return rms > threshold
 
 
 def _audio_rms(audio: np.ndarray) -> float:
@@ -129,9 +134,15 @@ def _audio_rms(audio: np.ndarray) -> float:
     return float(np.sqrt(np.mean(audio.astype(np.float32, copy=False) ** 2)))
 
 
-def _has_speech(audio_chunk: np.ndarray, sample_rate: int, vad_model, get_speech_timestamps) -> bool:
+def _has_speech(
+    audio_chunk: np.ndarray,
+    sample_rate: int,
+    vad_model,
+    get_speech_timestamps,
+    simple_rms_threshold: float = SIMPLE_RMS_THRESHOLD,
+) -> bool:
     """Use Silero when available, with RMS as a safety net for clipped/short utterances."""
-    return _has_speech_simple(audio_chunk, sample_rate) or _has_speech_vad(
+    return _has_speech_simple(audio_chunk, sample_rate, simple_rms_threshold) or _has_speech_vad(
         audio_chunk,
         sample_rate,
         vad_model,
@@ -223,6 +234,7 @@ def _record_until_silence(
     stop_event: threading.Event,
     min_duration_sec: float = MIN_SPEECH_DURATION_SEC,
     min_speech_chunks: int = MIN_SPEECH_CHUNKS,
+    simple_rms_threshold: float = SIMPLE_RMS_THRESHOLD,
 ) -> tuple[np.ndarray, int, tuple[float, bool], float]:
     """Record from mini.media until speech ends (VAD detects silence for SILENCE_THRESHOLD_SEC).
     Returns (accumulated_audio, sample_rate, doa). Accumulates audio while speech is detected.
@@ -292,7 +304,13 @@ def _record_until_silence(
             chunk_parts.clear()
             chunk_part_samples = 0
 
-            has_speech = _has_speech(chunk_audio, sample_rate, vad_model, get_speech_timestamps)
+            has_speech = _has_speech(
+                chunk_audio,
+                sample_rate,
+                vad_model,
+                get_speech_timestamps,
+                simple_rms_threshold=simple_rms_threshold,
+            )
             if has_speech:
                 if not speech_started:
                     speech_started_at = time.monotonic()
@@ -421,6 +439,7 @@ def _capture_utterances_worker(
                 stop_event,
                 min_duration_sec=MIN_WAKE_SPEECH_DURATION_SEC,
                 min_speech_chunks=MIN_WAKE_SPEECH_CHUNKS,
+                simple_rms_threshold=WAKE_SIMPLE_RMS_THRESHOLD,
             )
             if stop_event.is_set():
                 break

@@ -50,7 +50,7 @@ Run a predefined PuppyPi action group:
 
 Verified movement control uses `/puppy_control/velocity` with message type
 `puppy_control_msgs/msg/Velocity`. For user requests such as "walk forward",
-"move forward", or "back up", use this topic with one bounded
+"move forward", "back up", "turn left", "turn right", or "rotate", use this topic with one bounded
 `publish_for_durations` call, then send an all-zero stop message.
 
 Verified forward movement request:
@@ -81,6 +81,53 @@ Hiwonder's ROS 2 docs demonstrate forward walking with
 `/puppy_control/velocity` using `x: 5.0`, not small fractional values. A live
 test on June 1, 2026 confirmed that `x: 5.0` for 0.8 seconds moved the dog
 forward. Earlier `x: 0.15` commands made it trot in place.
+
+Rotation uses the same velocity topic. Do not use the
+`/puppy/rotate_angle` action unless the user explicitly asks to test that
+unverified action. For a turn, publish `x: 0.0`, `y: 0.0`, and a bounded
+`yaw_rate`, then publish an all-zero stop message. Rotation works through
+`yaw_rate`.
+
+Raw velocity rotation tradeoff:
+
+- `yaw_rate` around `0.2` gives a cleaner, more in-place turn, but it is not a
+  small angle: `yaw_rate: 0.2` for 0.03 seconds produced roughly 135 degrees.
+- Lower yaw rates produce smaller turns but arc more.
+- Do not rely on sub-30ms durations for smaller angles; `yaw_rate: 0.2` for
+  0.01 seconds still produced roughly 135 degrees, likely due to a
+  controller/gait timing floor.
+- Avoid `yaw_rate: 0.5` for small turns; even 0.01 seconds produced nearly a
+  full rotation.
+
+Calibrated cleaner rotation request:
+```json
+{
+  "topic": "/puppy_control/velocity",
+  "msg_type": "puppy_control_msgs/msg/Velocity",
+  "messages": [
+    {
+      "x": 0.0,
+      "y": 0.0,
+      "yaw_rate": 0.2
+    },
+    {
+      "x": 0.0,
+      "y": 0.0,
+      "yaw_rate": 0.0
+    }
+  ],
+  "durations": [
+    0.03,
+    0.5
+  ]
+}
+```
+
+Use positive `yaw_rate` for a left / counterclockwise turn and negative
+`yaw_rate` for a right / clockwise turn, unless live testing shows this
+particular PuppyPi image has the signs reversed. Do not claim a specific angle
+turned unless the user confirms it, a calibration table exists, or odometry is
+available.
 
 ROS 2 actions are present, but were not verified for movement through ROS MCP:
 
@@ -130,6 +177,11 @@ physically verified.
   `/puppy_control/velocity`, then stop. For a forward test, use the documented
   PuppyPi scale: `x: 5.0`, `y: 0.0`, `yaw_rate: 0.0` for no more than 1
   second, followed immediately by all-zero velocity for at least 0.5 seconds.
+- For rotation requests, use `/puppy_control/velocity` with `x: 0.0`,
+  `y: 0.0`, and a short bounded `yaw_rate`, followed immediately by all-zero
+  velocity for at least 0.5 seconds. Follow the rotation tradeoff guidance
+  above: `yaw_rate` around `0.2` is cleaner but large; lower yaw rates make
+  smaller turns but arc more.
 - Always stop by publishing zero velocity after any movement attempt.
 - Do not claim a distance traveled unless you have real odometry or user
   confirmation. PuppyPi may step/trot in place if the gait or velocity scale is

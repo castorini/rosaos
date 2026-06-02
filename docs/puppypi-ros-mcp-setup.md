@@ -279,6 +279,33 @@ Hiwonder's ROS 2 docs demonstrate direct forward velocity with
 Avoid tiny fractional values such as `x: 0.15`; that was observed to produce
 little or no translation.
 
+For raw velocity rotation, use the same `/puppy_control/velocity` topic with
+`x: 0.0`, `y: 0.0`, and a bounded `yaw_rate`, followed immediately by an
+all-zero stop message. Positive `yaw_rate` should mean left / counterclockwise
+and negative `yaw_rate` should mean right / clockwise, unless live testing shows
+this PuppyPi image has the signs reversed.
+
+The best calibrated raw-velocity turn so far is `yaw_rate: 0.2` for 0.03
+seconds, followed by zero velocity for 0.5 seconds. It produced a cleaner turn
+than lower yaw-rate commands, but it is still a large turn: roughly 135 degrees.
+Use it when a cleaner pivot matters more than precise small-angle control.
+
+For smaller turns, lower `yaw_rate` instead of relying on extremely short
+durations. Testing suggests sub-30ms durations may hit a controller or gait
+timing floor: `yaw_rate: 0.2` for both 0.03 seconds and 0.01 seconds produced
+roughly the same 135 degree turn. Lower yaw rates can produce smaller turns, but
+they arc more.
+
+Calibration notes from June 1, 2026:
+
+| Command | Observed result |
+| --- | --- |
+| `yaw_rate: 0.04` for 0.1s | Roughly 30 degrees, more arcing |
+| `yaw_rate: 0.08` for 0.06s | Roughly 45 degrees, still arcing |
+| `yaw_rate: 0.2` for 0.03s | Roughly 135 degrees, less arcing |
+| `yaw_rate: 0.2` for 0.01s | Roughly 135 degrees, likely timing floor |
+| `yaw_rate: 0.5` for 0.01s | Nearly a full rotation; avoid for small turns |
+
 The live graph also exposed `/puppy/move_distance`, `/puppy/rotate_angle`, and
 `/puppy/move_to_pose`, but a `MoveDistance` goal sent through ROS MCP timed out
 and did not move the dog. Treat those actions as unverified until tested

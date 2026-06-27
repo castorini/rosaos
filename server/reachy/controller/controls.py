@@ -17,7 +17,7 @@ import numpy as np
 
 from server.reachy import controller
 
-_DAEMON_URL = "http://localhost:8000/api"
+_DAEMON_URL = os.environ.get("REACHY_DAEMON_URL", "http://localhost:8000/api").rstrip("/")
 _daemon = httpx.Client(base_url=_DAEMON_URL, timeout=30.0)
 
 _EMOTIONS_DATASET = "pollen-robotics/reachy-mini-emotions-library"
@@ -34,6 +34,19 @@ _LISTENING_ANTENNA_Y = math.radians(20)
 _AUDIO_TURN_DURATION_SEC = float(os.environ.get("REACHY_AUDIO_TURN_DURATION_SEC", "2.5"))
 _BACKGROUND_MOVE_IDS: set[str] = set()
 _BACKGROUND_MOVE_IDS_LOCK = threading.Lock()
+
+
+def _get_motor_control_mode() -> str | None:
+    resp = _daemon.get("/motors/status")
+    resp.raise_for_status()
+    return resp.json().get("mode")
+
+
+def _ensure_motor_control_enabled() -> None:
+    if _get_motor_control_mode() == "enabled":
+        return
+    resp = _daemon.post("/motors/set_mode/enabled")
+    resp.raise_for_status()
 
 
 def _move_uuid(move: dict[str, Any]) -> str | None:
@@ -56,6 +69,7 @@ def _get_running_moves() -> list[dict[str, str]]:
 
 def _set_target(target: dict[str, Any]) -> str:
     """Set a new target position for the head/antennas/body via the daemon."""
+    _ensure_motor_control_enabled()
     resp = _daemon.post("/move/set_target", json=target)
     resp.raise_for_status()
     return f"Move started: {resp.json()}"
@@ -102,6 +116,7 @@ def _go_to(head_x: float = 0,
         if body_yaw is not None:
             payload["body_yaw"] = body_yaw
 
+        _ensure_motor_control_enabled()
         resp = _daemon.post("/move/goto", json=payload)
         resp.raise_for_status()
 
@@ -116,6 +131,7 @@ def _go_to_antennas(
         "duration": duration,
         "interpolation": method,
     }
+    _ensure_motor_control_enabled()
     resp = _daemon.post("/move/goto", json=payload)
     resp.raise_for_status()
     move = resp.json()
@@ -162,6 +178,14 @@ def _get_head_pose() -> dict[str, float]:
 def _go_to_default() -> str:
     """Go to the default position."""
     return _go_to()
+
+
+def wake_up() -> str:
+    """Enable motor control and request the daemon wake-up move."""
+    _ensure_motor_control_enabled()
+    resp = _daemon.post("/move/play/wake_up")
+    resp.raise_for_status()
+    return f"Wake-up started: {resp.json()}"
 
 def _stop_all_moves() -> list[str]:
     """Stop all currently running moves. Returns list of stop messages."""
@@ -238,6 +262,7 @@ def _get_available_emotions() -> list[str]:
 def _play_emotion(emotion: str) -> str:
     """Play an emotion from the recorded moves dataset."""
     _stop_all_moves()
+    _ensure_motor_control_enabled()
     # Resolve emotion type to a specific move variant
     variants = moves_.get(emotion)
     emotion_to_play = emotion
@@ -293,8 +318,15 @@ def move_to_audio(
         _stop_all_moves()
 
     if doa is None:
-        print("No DoA provided, fetching from mini.media.get_DoA()")
-        doa = mini.media.get_DoA()
+        if mini is None:
+            print("No DoA provided, fetching from daemon /state/doa")
+            resp = _daemon.get("/state/doa")
+            resp.raise_for_status()
+            data = resp.json()
+            doa = (float(data["angle"]), bool(data["speech_detected"]))
+        else:
+            print("No DoA provided, fetching from mini.media.get_DoA()")
+            doa = mini.media.get_DoA()
 
     if doa is not None:
         angle, is_valid = doa

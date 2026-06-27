@@ -22,7 +22,7 @@ def _log_tool_entered(name: str, **params: Any) -> None:
     print(msg, flush=True, file=sys.stderr)
 
 
-def register_robot_tools(mcp: FastMCP, get_mini: Callable[[], ReachyMini]):
+def register_robot_tools(mcp: FastMCP, get_mini: Callable[[], ReachyMini | None]):
     """Register all robot tools.
 
     Motion tools use the daemon HTTP API (non-blocking, cancellable, task-tracked).
@@ -51,6 +51,12 @@ def register_robot_tools(mcp: FastMCP, get_mini: Callable[[], ReachyMini]):
         _log_tool_entered("reset_head")
         controller._go_to_default()
         return "Reset done."
+
+    @mcp.tool()
+    def wake_up() -> str:
+        """Enable motor control and move Reachy Mini to its awake pose."""
+        _log_tool_entered("wake_up")
+        return controller.wake_up()
 
     @mcp.tool()
     def move_head_left(multiple: int = 1) -> str:
@@ -106,7 +112,14 @@ def register_robot_tools(mcp: FastMCP, get_mini: Callable[[], ReachyMini]):
             tuple[str, Image | str]: The path to the image and the image or text description of the image.
         """
         _log_tool_entered("take_picture", for_text_only_model=for_text_only_model)
-        return controller.take_picture(get_mini(), for_text_only_model)
+        mini = get_mini()
+        if mini is None:
+            return (
+                "",
+                "Camera capture is unavailable in REACHY_HTTP_ONLY mode; "
+                "the wireless daemon exposes camera video over WebRTC, not the SDK frame API.",
+            )
+        return controller.take_picture(mini, for_text_only_model)
 
     @mcp.tool()
     def describe_image(image: str, question: str = "What is in the image?") -> Any:
@@ -171,5 +184,9 @@ def register_robot_tools(mcp: FastMCP, get_mini: Callable[[], ReachyMini]):
                 execute after the current speech finishes.
         """
         _log_tool_entered("speak", text=text, forcefully_interrupt=forcefully_interrupt)
-        controller.speak(get_mini(), text, forcefully_interrupt)
+        mini = get_mini()
+        if mini is None:
+            controller.speak_http(text, forcefully_interrupt)
+        else:
+            controller.speak(mini, text, forcefully_interrupt)
         return "Done"

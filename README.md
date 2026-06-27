@@ -57,7 +57,7 @@ For fresh macOS + Reachy Mini Lite setup details, including camera permissions a
 ## Usage
 
 ### Quick Start (All Services)
-Start all services at once:
+Start all services at once for a local Reachy Mini Lite daemon:
 
 ```bash
 ./scripts/start_all.sh
@@ -74,6 +74,35 @@ Logs are saved to the `scripts/logs/` directory. To stop all services:
 ```bash
 ./scripts/stop_all.sh
 ```
+
+### Wireless Reachy Mini
+For the autonomous wireless Reachy Mini, keep the official Reachy daemon running
+on the robot and run rosaOS locally. The laptop-side MCP server talks to the
+robot daemon over the network.
+
+```bash
+# Defaults to the Reachy found during setup: 10.20.125.233
+./scripts/start_wireless_reachy.sh
+
+# Or set the robot IP explicitly
+REACHY_HOST=10.20.125.233 ./scripts/start_wireless_reachy.sh
+```
+
+This starts:
+- Reachy MCP server (port 5001)
+- Process manager MCP server (port 7001)
+- RAG agent (port 8765)
+
+It does **not** start a local `reachy-mini-daemon`; the robot's daemon should
+already be reachable at `REACHY_DAEMON_URL` (default:
+`http://${REACHY_HOST}:8000/api`). By default this uses `REACHY_HTTP_ONLY=1`,
+which avoids local SDK media discovery and supports HTTP-backed motion and
+speech tools. Camera capture and the local STT loop still require a direct SDK
+connection or a future WebRTC bridge.
+
+The wireless daemon service starts with `--no-wake-up-on-start`, so the script
+also enables motor control and requests the wake-up move by default. Set
+`REACHY_WAKE_ON_START=0` to leave the robot in its current pose.
 
 ### Manual Start (Individual Services)
 Alternatively, start each service manually:
@@ -134,6 +163,13 @@ All ports and the LLM source can be overridden by environment variables so scrip
 | `PROCESS_SERVER_PORT` | `7001` | Process manager MCP server port. |
 | `PROCESS_SERVER_URL` | — | Full process server URL (e.g. `http://localhost:7001/mcp`). |
 | `REACHY_MCP_PORT` | `5001` | Reachy Mini MCP server port (when starting `python -m server`). |
+| `REACHY_HOST` | `10.20.125.233` in `start_wireless_reachy.sh` | Wireless Reachy Mini host used to build `REACHY_DAEMON_URL` when that variable is not set. |
+| `REACHY_DAEMON_URL` | `http://localhost:8000/api` | Reachy daemon API base URL used by motion tools. For wireless Reachy, use `http://<robot-ip>:8000/api`. |
+| `REACHY_CONNECTION_MODE` | `auto` | Reachy SDK connection mode. Use `network` for wireless Reachy; local/Lite setups can keep `auto`. |
+| `REACHY_SPAWN_DAEMON` | `0` | Whether the Reachy SDK may spawn a daemon from the MCP server process. Keep disabled for wireless Reachy. |
+| `REACHY_CONNECTION_TIMEOUT` | `5.0` | Seconds to wait while connecting the Reachy SDK. |
+| `REACHY_HTTP_ONLY` | `1` in `start_wireless_reachy.sh` | Skip the Reachy SDK media/Zenoh connection and expose HTTP-backed wireless tools. |
+| `REACHY_WAKE_ON_START` | `1` in `start_wireless_reachy.sh` | Enable motor control and request the wake-up move before starting rosaOS wireless services. |
 | `STT_CALLBACK_URL` | from `RAG_AGENT_PORT` | Where the server POSTs transcribed speech (default `http://localhost:{RAG_AGENT_PORT}/stt`). |
 | `STT_WAKE_WORD` | `hello` | Wake word used when eye contact is absent. After the wake word, Reachy turns toward the detected audio direction and then listens for the command. |
 | `STT_WAKE_WORD_ALIASES` | `hello,helo,hallo,hullo` | Comma-separated wake-word transcription variants accepted while listening for activation. |

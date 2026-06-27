@@ -18,11 +18,24 @@ _stt_stop = None
 _stt_thread = None
 
 
+def _env_flag(name: str, default: str = "0") -> bool:
+    return os.environ.get(name, default).lower() in {"1", "true", "yes"}
+
+
+def _reachy_connection_kwargs() -> dict[str, object]:
+    """Connection options shared by real-hardware ReachyMini instances."""
+    return {
+        "connection_mode": os.environ.get("REACHY_CONNECTION_MODE", "auto"),
+        "spawn_daemon": _env_flag("REACHY_SPAWN_DAEMON"),
+        "timeout": float(os.environ.get("REACHY_CONNECTION_TIMEOUT", "5.0")),
+    }
+
+
 @asynccontextmanager
 async def lifespan(server):
     global mini, _stt_stop, _stt_thread
     controller._IMAGES_DIR.mkdir(parents=True, exist_ok=True)
-    with ReachyMini() as m:
+    with ReachyMini(**_reachy_connection_kwargs()) as m:
         mini = m
         _stt_thread, _stt_stop = start_stt_loop(mini)
         try:
@@ -59,6 +72,11 @@ def main(sim: bool = False, tts_elevenlabs: bool = False, tts_voice: str | None 
             mcp = FastMCP("Reachy Mini Robot")
             register_robot_tools(mcp, lambda: m)
             mcp.run(transport="streamable-http", port=port, stateless_http=True)
+    elif _env_flag("REACHY_HTTP_ONLY"):
+        # Wireless fallback: expose HTTP-backed tools without opening the SDK media/Zenoh client.
+        mcp = FastMCP("Reachy Mini Robot")
+        register_robot_tools(mcp, lambda: None)
+        mcp.run(transport="streamable-http", port=port, stateless_http=True)
     else:
         # Real hardware mode: use lifespan with STT loop and camera.
         mcp = FastMCP("Reachy Mini Robot", lifespan=lifespan)

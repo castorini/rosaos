@@ -7,10 +7,13 @@ import subprocess
 import sys
 import threading
 import time
+from pathlib import Path
 from reachy_mini import ReachyMini
 from threading import Thread
+import httpx
 
 _TTS_SCRIPT = os.path.join(os.path.dirname(os.path.abspath(__file__)), "tts.py")
+_DAEMON_URL = os.environ.get("REACHY_DAEMON_URL", "http://localhost:8000/api").rstrip("/")
 
 # Simple queue for speak requests from multiple agents
 _speak_queue: queue.Queue[tuple[ReachyMini, str]] = queue.Queue()
@@ -105,4 +108,29 @@ def speak(mini: ReachyMini, text: str, forcefully_interrupt: bool = False) -> st
         # Queue the request
         _speak_queue.put((mini, text))
     
+    return "Done"
+
+
+def speak_http(text: str, forcefully_interrupt: bool = False) -> str:
+    """Generate speech locally and play it through the daemon media HTTP API."""
+    project_dir = Path(__file__).resolve().parent
+    output = project_dir / "output.wav"
+    subprocess.run(
+        [sys.executable, _TTS_SCRIPT, text, str(output.name)],
+        check=True,
+        cwd=project_dir,
+    )
+
+    with httpx.Client(base_url=_DAEMON_URL, timeout=60.0) as client:
+        if forcefully_interrupt:
+            client.post("/media/stop_sound")
+        with output.open("rb") as f:
+            upload = client.post(
+                "/media/sounds/upload",
+                files={"file": (output.name, f, "audio/wav")},
+            )
+        upload.raise_for_status()
+        filename = upload.json().get("filename", output.name)
+        play = client.post("/media/play_sound", json={"file": filename})
+        play.raise_for_status()
     return "Done"

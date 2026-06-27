@@ -79,6 +79,7 @@ def init_model() -> None:
         elif provider == "openai":
             openai_model = os.environ.get("OPENAI_MODEL", DEFAULT_MODELS["openai"])
             api_key = os.environ.get("OPENAI_API_KEY", "").strip()
+            base_url = os.environ.get("OPENAI_BASE_URL", "").strip()
             if not api_key:
                 raise SystemExit(
                     "OPENAI_API_KEY is not set. OpenAI API billing is separate from ChatGPT subscriptions. "
@@ -86,11 +87,17 @@ def init_model() -> None:
                     "  export OPENAI_API_KEY=your_key   # macOS/Linux\n"
                     "  set OPENAI_API_KEY=your_key      # Windows"
                 )
+            provider_kwargs = {"api_key": api_key}
+            if base_url:
+                provider_kwargs["base_url"] = base_url
             model = OpenAIResponsesModel(
                 openai_model,
-                provider=OpenAIProvider(api_key=api_key),
+                provider=OpenAIProvider(**provider_kwargs),
             )
-            print("Using OpenAI model:", openai_model)
+            if base_url:
+                print("Using OpenAI model:", openai_model, "at", base_url)
+            else:
+                print("Using OpenAI model:", openai_model)
         else:
             if provider != "groq":
                 raise SystemExit(

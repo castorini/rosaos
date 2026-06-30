@@ -91,10 +91,15 @@ onboard Raspberry Pi and start only the local rosaOS services on the Mac:
 
 ```bash
 cd /Users/lily/dev/rosaos
-REACHY_HOST=<robot-ip-or-hostname> ./scripts/start_wireless_reachy.sh
+./scripts/start_wireless_reachy.sh
 ```
 
-If you already know the full daemon API base URL, provide it directly:
+The wireless script defaults to `reachy-mini.local`. If mDNS is unavailable on
+your network, provide the robot host/IP or the full daemon API base URL:
+
+```bash
+REACHY_HOST=<robot-ip-or-hostname> ./scripts/start_wireless_reachy.sh
+```
 
 ```bash
 REACHY_DAEMON_URL=http://<robot-ip-or-hostname>:8000/api ./scripts/start_wireless_reachy.sh

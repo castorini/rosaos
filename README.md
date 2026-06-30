@@ -82,10 +82,13 @@ For a wireless Reachy Mini, keep the official Reachy daemon running on the
 robot and run rosaOS locally on the Mac:
 
 ```bash
-REACHY_HOST=10.20.125.233 ./scripts/start_wireless_reachy.sh
+./scripts/start_wireless_reachy.sh
+
+# Or provide a host/IP if reachy-mini.local is unavailable:
+REACHY_HOST=<robot-ip-or-hostname> ./scripts/start_wireless_reachy.sh
 
 # Or provide the full daemon API base URL directly:
-REACHY_DAEMON_URL=http://10.20.125.233:8000/api ./scripts/start_wireless_reachy.sh
+REACHY_DAEMON_URL=http://reachy-mini.local:8000/api ./scripts/start_wireless_reachy.sh
 ```
 
 This starts:
@@ -159,8 +162,8 @@ All ports and the LLM source can be overridden by environment variables so scrip
 | `PROCESS_SERVER_PORT` | `7001` | Process manager MCP server port. |
 | `PROCESS_SERVER_URL` | — | Full process server URL (e.g. `http://localhost:7001/mcp`). |
 | `REACHY_MCP_PORT` | `5001` | Reachy Mini MCP server port (when starting `python -m server`). |
-| `REACHY_HOST` | — | Wireless Reachy Mini host used by `start_wireless_reachy.sh` to build `REACHY_DAEMON_URL` when that variable is not set. |
-| `REACHY_DAEMON_URL` | `http://localhost:8000/api` | Reachy daemon API base URL used by daemon-backed motion/emotion tools. For wireless Reachy, use `http://<robot-ip>:8000/api`. |
+| `REACHY_HOST` | `reachy-mini.local` in `start_wireless_reachy.sh` | Wireless Reachy Mini host used by `start_wireless_reachy.sh` to build `REACHY_DAEMON_URL` when that variable is not set. Override it with the robot IP if mDNS is unavailable. |
+| `REACHY_DAEMON_URL` | `http://localhost:8000/api` | Reachy daemon API base URL used by daemon-backed motion/emotion tools. For wireless Reachy, `start_wireless_reachy.sh` defaults to `http://reachy-mini.local:8000/api`. |
 | `REACHY_CONNECTION_MODE` | `auto` | Reachy SDK connection mode. Use `network` for wireless Reachy; local/Lite setups can keep `auto`. |
 | `REACHY_SPAWN_DAEMON` | `0` | Whether the Reachy SDK may spawn a daemon from the MCP server process. Keep disabled for wireless Reachy. |
 | `REACHY_CONNECTION_TIMEOUT` | `5.0` | Seconds to wait while connecting the Reachy SDK. |

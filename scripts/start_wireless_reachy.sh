@@ -15,12 +15,7 @@ if [ ! -x "$PYTHON" ]; then
 fi
 
 if [ -z "$REACHY_DAEMON_URL" ]; then
-    if [ -z "$REACHY_HOST" ]; then
-        echo "Set REACHY_HOST or REACHY_DAEMON_URL for the wireless Reachy Mini."
-        echo "Example:"
-        echo "  REACHY_HOST=10.20.125.233 ./scripts/start_wireless_reachy.sh"
-        exit 1
-    fi
+    export REACHY_HOST="${REACHY_HOST:-reachy-mini.local}"
     export REACHY_DAEMON_URL="http://${REACHY_HOST}:8000/api"
 fi
 export REACHY_DAEMON_URL="${REACHY_DAEMON_URL%/}"
@@ -45,7 +40,8 @@ echo ""
 echo "Checking wireless Reachy daemon..."
 if ! curl --connect-timeout 3 --max-time 5 -fsS "$REACHY_DAEMON_URL/daemon/status" > /dev/null; then
     echo "Could not reach $REACHY_DAEMON_URL/daemon/status"
-    echo "Set REACHY_HOST or REACHY_DAEMON_URL to the wireless Reachy address."
+    echo "If mDNS is unavailable on this network, set REACHY_HOST to the robot IP"
+    echo "or set REACHY_DAEMON_URL to the full wireless Reachy daemon API URL."
     exit 1
 fi
 echo "  ✓ Wireless Reachy daemon is reachable"

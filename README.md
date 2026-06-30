@@ -35,6 +35,13 @@ Required for image analysis and better TTS experience.
 - **macOS/Linux:** `export OPENAI_API_KEY=your_key`
 - **Windows (PowerShell):** `$env:OPENAI_API_KEY="your_key"`
 
+To route OpenAI-compatible requests through a custom endpoint while keeping the OpenAI provider path, also set `OPENAI_BASE_URL`:
+
+```bash
+export OPENAI_BASE_URL=https://your-endpoint.example/v1
+scripts/reachy_mini_env/bin/python -m client --openai
+```
+
 OpenAI API usage is billed through the API platform, separately from ChatGPT Free/Plus/Pro subscriptions. A ChatGPT subscription does not provide API quota for rosaOS.
 
 ## Installation
@@ -121,6 +128,7 @@ All ports and the LLM source can be overridden by environment variables so scrip
 |----------|---------|-------------|
 | `OPENAI_API_KEY` | — | **Required** by default, or when using OpenAI (`--openai`, `--provider openai`, or `LLM_PROVIDER=openai`). OpenAI API key from `https://platform.openai.com/api-keys`; ChatGPT subscriptions do not count as API billing. |
 | `OPENAI_MODEL` | `gpt-5.2` | OpenAI model name when `LLM_PROVIDER=openai` (overridden by `--model` when using `--openai` or `--provider openai`). |
+| `OPENAI_BASE_URL` | — | Optional custom OpenAI-compatible base URL for the OpenAI provider path, such as `https://your-endpoint.example/v1`. |
 | `GROQ_API_KEY` | — | **Required** when using Groq. Groq API key from [console.groq.com/keys](https://console.groq.com/keys). |
 | `LOCAL_LLM` | — | Set to `1` or `true` to use local OpenAI-compatible endpoint. |
 | `LOCAL_LLM_PORT` | `6000` | Port of local LLM when `LOCAL_LLM` is set. |

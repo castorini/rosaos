@@ -166,6 +166,7 @@ All ports and the LLM source can be overridden by environment variables so scrip
 | `REACHY_CONNECTION_TIMEOUT` | `5.0` | Seconds to wait while connecting the Reachy SDK. |
 | `REACHY_MEDIA_BACKEND` | `default` | Reachy SDK media backend. `default` auto-detects wireless WebRTC remotely; `no_media` disables camera/mic media. |
 | `REACHY_ENABLE_MOTORS_ON_MOVE` | `0` (`1` in `start_wireless_reachy.sh`) | Enable motor control before daemon-backed motion/emotion calls. |
+| `REACHY_EYE_CONTACT_ENABLED` | `1` (`0` in `start_wireless_reachy.sh`) | Enable camera-based eye-contact activation in the STT loop. Wireless mode disables this by default to avoid idle camera polling; wake-word STT remains enabled. |
 | `STT_CALLBACK_URL` | from `RAG_AGENT_PORT` | Where the server POSTs transcribed speech (default `http://localhost:{RAG_AGENT_PORT}/stt`). |
 | `STT_WAKE_WORD` | `hello` | Wake word used when eye contact is absent. After the wake word, Reachy turns toward the detected audio direction and then listens for the command. |
 | `STT_WAKE_WORD_ALIASES` | `hello,helo,hallo,hullo` | Comma-separated wake-word transcription variants accepted while listening for activation. |

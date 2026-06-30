@@ -59,6 +59,12 @@ WAKE_WORD_ALIASES = [
     if alias.strip()
 ]
 EYE_CONTACT_POLL_INTERVAL = float(os.environ.get("EYE_CONTACT_POLL_INTERVAL", "0.16"))
+EYE_CONTACT_ENABLED = os.environ.get("REACHY_EYE_CONTACT_ENABLED", "1").strip().lower() not in {
+    "0",
+    "false",
+    "no",
+    "off",
+}
 POST_TRIGGER_SPEECH_TIMEOUT_SEC = float(os.environ.get("POST_TRIGGER_SPEECH_TIMEOUT_SEC", "8.0"))
 STT_DEBUG = os.environ.get("STT_DEBUG", "1").strip().lower() not in {"0", "false", "no", "off"}
 WAKE_IDLE_LOG_INTERVAL_SEC = float(os.environ.get("STT_WAKE_IDLE_LOG_INTERVAL_SEC", "3.0"))
@@ -366,9 +372,9 @@ def _wait_for_trigger(
 ) -> ActivationSource | None:
     """Block until eye contact is detected OR the configured wake word is heard.
 
-    Runs the eye-contact watcher in a background thread while this thread
-    checks captured utterances for the wake word. Returns the activation source,
-    or None if stop_event was set before either trigger fired.
+    Optionally runs the eye-contact watcher in a background thread while this
+    thread checks captured utterances for the wake word. Returns the activation
+    source, or None if stop_event was set before either trigger fired.
     """
     triggered = threading.Event()
     activation_source: list[ActivationSource | None] = [None]
@@ -391,7 +397,10 @@ def _wait_for_trigger(
                 triggered.set()
 
     threading.Thread(target=_sync_combined, daemon=True).start()
-    threading.Thread(target=_eye_contact_watcher, daemon=True).start()
+    if EYE_CONTACT_ENABLED:
+        threading.Thread(target=_eye_contact_watcher, daemon=True).start()
+    elif STT_DEBUG:
+        _log("eye-contact trigger disabled; waiting for wake word only")
 
     # Record audio in a loop and check each utterance for the wake word.
     next_idle_log_at = time.monotonic() + WAKE_IDLE_LOG_INTERVAL_SEC

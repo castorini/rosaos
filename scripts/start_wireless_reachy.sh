@@ -29,6 +29,7 @@ export REACHY_SPAWN_DAEMON="${REACHY_SPAWN_DAEMON:-0}"
 export REACHY_CONNECTION_TIMEOUT="${REACHY_CONNECTION_TIMEOUT:-5.0}"
 export REACHY_MEDIA_BACKEND="${REACHY_MEDIA_BACKEND:-default}"
 export REACHY_ENABLE_MOTORS_ON_MOVE="${REACHY_ENABLE_MOTORS_ON_MOVE:-1}"
+export REACHY_EYE_CONTACT_ENABLED="${REACHY_EYE_CONTACT_ENABLED:-0}"
 
 mkdir -p scripts/logs
 
@@ -38,6 +39,7 @@ echo "Starting rosaOS for wireless Reachy Mini..."
 echo "Logs directory: $SCRIPT_DIR/logs"
 echo "Reachy daemon: $REACHY_DAEMON_URL"
 echo "SDK connection mode: $REACHY_CONNECTION_MODE"
+echo "Eye-contact trigger: $REACHY_EYE_CONTACT_ENABLED"
 echo ""
 
 echo "Checking wireless Reachy daemon..."

@@ -18,11 +18,25 @@ _stt_stop = None
 _stt_thread = None
 
 
+def _env_flag(name: str, default: str = "0") -> bool:
+    return os.environ.get(name, default).strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _reachy_connection_kwargs() -> dict[str, object]:
+    """Connection options shared by real-hardware ReachyMini instances."""
+    return {
+        "connection_mode": os.environ.get("REACHY_CONNECTION_MODE", "auto"),
+        "spawn_daemon": _env_flag("REACHY_SPAWN_DAEMON"),
+        "timeout": float(os.environ.get("REACHY_CONNECTION_TIMEOUT", "5.0")),
+        "media_backend": os.environ.get("REACHY_MEDIA_BACKEND", "default"),
+    }
+
+
 @asynccontextmanager
 async def lifespan(server):
     global mini, _stt_stop, _stt_thread
     controller._IMAGES_DIR.mkdir(parents=True, exist_ok=True)
-    with ReachyMini() as m:
+    with ReachyMini(**_reachy_connection_kwargs()) as m:
         mini = m
         _stt_thread, _stt_stop = start_stt_loop(mini)
         try:

@@ -119,12 +119,24 @@ def take_picture(mini: ReachyMini, for_text_only_model: bool = True) -> tuple[st
     if delay > 0:
         sleep(delay)
     # Flush one frame to avoid occasionally getting an outdated buffer frame,
-    # then grab the next one as the actual snapshot.
+    # then retry briefly for the actual snapshot. Wireless WebRTC streams can
+    # produce an empty frame while the pipeline is warming up.
     _ = mini.media.get_frame()
-    frame = mini.media.get_frame()
+    frame = None
+    retries = int(os.environ.get("TAKE_PICTURE_FRAME_RETRIES", "5"))
+    retry_delay = float(os.environ.get("TAKE_PICTURE_FRAME_RETRY_DELAY_SEC", "0.2"))
+    for _ in range(max(1, retries)):
+        candidate = mini.media.get_frame()
+        if candidate is not None and getattr(candidate, "size", 0) > 0:
+            frame = candidate
+            break
+        if retry_delay > 0:
+            sleep(retry_delay)
+    if frame is None:
+        return ("", "Error: could not capture a non-empty frame from Reachy Mini's camera.")
     path = _next_image_path()
     if not cv2.imwrite(str(path), frame):
-        return "Error: failed to save image."
+        return ("", "Error: failed to save image.")
     if for_text_only_model:
         return (str(path), describe_image(path))
     return (str(path), Image(path=str(path)))

@@ -3,7 +3,9 @@
 ROS Agentic Operating System: Control robots with LLMs through MCP with Reachy Mini as the interface.
 
 ## Requirements
-Using Reachy Mini Lite for easy media stream.
+rosaOS can run with a local Reachy Mini Lite daemon or with a wireless Reachy
+Mini daemon already running on the robot. In wireless mode, rosaOS stays on the
+Mac and only connects to the robot's existing daemon/API endpoint.
 
 The client supports a **local OpenAI-compatible LLM** (e.g. vLLM), the **OpenAI API**, the **Groq API**, or the **Anthropic API**. Choose one via CLI or environment variables.
 
@@ -56,8 +58,8 @@ For fresh macOS + Reachy Mini Lite setup details, including camera permissions a
 
 ## Usage
 
-### Quick Start (All Services)
-Start all services at once:
+### Quick Start: Reachy Mini Lite
+Start all services at once for a local Reachy Mini Lite daemon:
 
 ```bash
 ./scripts/start_all.sh
@@ -74,6 +76,29 @@ Logs are saved to the `scripts/logs/` directory. To stop all services:
 ```bash
 ./scripts/stop_all.sh
 ```
+
+### Wireless Reachy Mini
+For a wireless Reachy Mini, keep the official Reachy daemon running on the
+robot and run rosaOS locally on the Mac:
+
+```bash
+REACHY_HOST=10.20.125.233 ./scripts/start_wireless_reachy.sh
+
+# Or provide the full daemon API base URL directly:
+REACHY_DAEMON_URL=http://10.20.125.233:8000/api ./scripts/start_wireless_reachy.sh
+```
+
+This starts:
+- MCP server (port 5001)
+- Process manager MCP server (port 7001)
+- RAG agent (port 8765)
+
+It does **not** start a local `reachy-mini-daemon`; the robot's onboard daemon
+must already be reachable. Wireless motion and emotions use
+`REACHY_DAEMON_URL`. Camera and microphone access use the official
+`reachy_mini` SDK network/WebRTC media path, so full robot UX also depends on
+the wireless daemon's media support and the Mac's local WebRTC/GStreamer
+dependencies.
 
 ### Manual Start (Individual Services)
 Alternatively, start each service manually:
@@ -134,6 +159,13 @@ All ports and the LLM source can be overridden by environment variables so scrip
 | `PROCESS_SERVER_PORT` | `7001` | Process manager MCP server port. |
 | `PROCESS_SERVER_URL` | — | Full process server URL (e.g. `http://localhost:7001/mcp`). |
 | `REACHY_MCP_PORT` | `5001` | Reachy Mini MCP server port (when starting `python -m server`). |
+| `REACHY_HOST` | — | Wireless Reachy Mini host used by `start_wireless_reachy.sh` to build `REACHY_DAEMON_URL` when that variable is not set. |
+| `REACHY_DAEMON_URL` | `http://localhost:8000/api` | Reachy daemon API base URL used by daemon-backed motion/emotion tools. For wireless Reachy, use `http://<robot-ip>:8000/api`. |
+| `REACHY_CONNECTION_MODE` | `auto` | Reachy SDK connection mode. Use `network` for wireless Reachy; local/Lite setups can keep `auto`. |
+| `REACHY_SPAWN_DAEMON` | `0` | Whether the Reachy SDK may spawn a daemon from the MCP server process. Keep disabled for wireless Reachy. |
+| `REACHY_CONNECTION_TIMEOUT` | `5.0` | Seconds to wait while connecting the Reachy SDK. |
+| `REACHY_MEDIA_BACKEND` | `default` | Reachy SDK media backend. `default` auto-detects wireless WebRTC remotely; `no_media` disables camera/mic media. |
+| `REACHY_ENABLE_MOTORS_ON_MOVE` | `0` (`1` in `start_wireless_reachy.sh`) | Enable motor control before daemon-backed motion/emotion calls. |
 | `STT_CALLBACK_URL` | from `RAG_AGENT_PORT` | Where the server POSTs transcribed speech (default `http://localhost:{RAG_AGENT_PORT}/stt`). |
 | `STT_WAKE_WORD` | `hello` | Wake word used when eye contact is absent. After the wake word, Reachy turns toward the detected audio direction and then listens for the command. |
 | `STT_WAKE_WORD_ALIASES` | `hello,helo,hallo,hullo` | Comma-separated wake-word transcription variants accepted while listening for activation. |

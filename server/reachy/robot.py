@@ -53,6 +53,12 @@ def register_robot_tools(mcp: FastMCP, get_mini: Callable[[], ReachyMini]):
         return "Reset done."
 
     @mcp.tool()
+    def wake_up() -> str:
+        """Enable motor control and move Reachy Mini to its awake pose."""
+        _log_tool_entered("wake_up")
+        return controller.wake_up()
+
+    @mcp.tool()
     def move_head_left(multiple: int = 1) -> str:
         """Move the head to the left.
         

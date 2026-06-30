@@ -1,6 +1,7 @@
 # macOS Reachy Mini setup notes
 
-These notes capture the first-run setup path for a fresh Mac with a Reachy Mini Lite.
+These notes capture the first-run setup path for a fresh Mac with a Reachy Mini
+Lite, plus the local rosaOS setup for a wireless Reachy Mini.
 
 ## Python environment
 
@@ -60,9 +61,9 @@ https://github.com/openai/codex/issues/17361. If Reachy Mini starts from Codex
 but the MCP server crashes with `RuntimeError: Camera not found`, stop the stack
 and the user should manually rerun it from a normal Terminal window.
 
-## Running and stopping
+## Running and stopping: Lite
 
-Start all services:
+Start all services for a local Reachy Mini Lite daemon:
 
 ```bash
 ./scripts/start_all.sh
@@ -82,6 +83,32 @@ The services and ports are:
 - rosaOS web UI: `8765`
 
 Plain `GET /mcp` requests often return `406 Not Acceptable`; that still confirms the MCP server is reachable. Use the web UI at `http://127.0.0.1:8765/` for typed chat.
+
+## Running and stopping: wireless Reachy Mini
+
+For the wireless Reachy Mini, leave the official daemon running on the robot's
+onboard Raspberry Pi and start only the local rosaOS services on the Mac:
+
+```bash
+cd /Users/lily/dev/rosaos
+REACHY_HOST=<robot-ip-or-hostname> ./scripts/start_wireless_reachy.sh
+```
+
+If you already know the full daemon API base URL, provide it directly:
+
+```bash
+REACHY_DAEMON_URL=http://<robot-ip-or-hostname>:8000/api ./scripts/start_wireless_reachy.sh
+```
+
+The wireless script does not start `reachy-mini-daemon` locally. It sets
+`REACHY_CONNECTION_MODE=network`, `REACHY_SPAWN_DAEMON=0`,
+`REACHY_MEDIA_BACKEND=default`, and `REACHY_ENABLE_MOTORS_ON_MOVE=1`.
+
+Motion and emotions use the HTTP daemon endpoint. Camera and microphone access
+use the official SDK's network/WebRTC media path; if that fails, verify the
+robot daemon's wireless media support and the Mac's GStreamer/WebRTC
+dependencies. The Pi should not run rosaOS, MCP servers, client workers, or any
+custom helper service.
 
 ## Quick checks
 
